@@ -1,17 +1,21 @@
 [project]
-name = "__PROJECT_NAME__"                  # 패키지 이름
-version = "__PROJECT_VERSION__"              # 패키지 버전
-description = "__PROJECT_DESCRIPTION__"                # 패키지 설명
+name = "datalake-iceberg"                        # 패키지 이름
+version = "1.0.0"                                # 패키지 버전
+description = "Apache Iceberg 기반 데이터레이크 구성"  # 패키지 설명
 readme = "README.md"           # README 파일 경로 (선택 사항)
-requires-python = ">=3.11"      # Python 버전 요구 사항
+requires-python = ">=3.12"     # Python 버전 요구 사항
 license = { file = "LICENSE" } # 라이센스 파일 경로 (선택 사항)
 
 dependencies = [
+    "pyspark==4.1.1",
 ]
 
 [build-system]
 requires = ["setuptools"]  # 패키지를 빌드하는 데 필요한 의존성
 build-backend = "setuptools.build_meta"  # 빌드 백엔드
+
+[tool.uv]
+package = false
 
 [tool.setuptools]
 packages = { find = { where = ["src"] } }
@@ -56,8 +60,8 @@ exclude = [
 line-length = 120
 indent-width = 4
 
-# Assume Python 3.11
-target-version = "py311"
+# Assume Python 3.12
+target-version = "py312"
 
 [tool.ruff.lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.
@@ -101,5 +105,5 @@ docstring-code-format = false
 docstring-code-line-length = "dynamic"
 
 [[tool.mypy.overrides]]
-module = []
+module = ["pyspark.*", "pydantic.*", "pydantic_settings.*"]
 ignore_missing_imports = true
