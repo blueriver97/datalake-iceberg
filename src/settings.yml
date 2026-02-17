@@ -1,0 +1,26 @@
+vault:
+  url: "http://vault.svc.internal:8200"
+  username: "admin"
+  password: "vaultadmin"
+  secret_path: "user/database/local-mysql"
+
+aws:
+  profile: "blueriver"
+
+iceberg:
+  catalog: "glue_catalog"
+  s3_root_path: "s3a://blueriver-datalake/iceberg"
+  parquet_s3_root_path: "s3a://blueriver-datalake/data/raw_rds"
+
+kafka:
+  bootstrap_servers: "kafka.svc.internal:9092"
+  schema_registry: "http://schema-registry.svc.internal:8081"
+  topic_prefix: "local"
+  metric_namespace: "local"
+  max_offsets_per_trigger: 100000
+  starting_offsets: "earliest"
+
+job:
+  schemas: "store_bronze"
+  tables: "store.tb_lower,store.TB_UPPER,store.TB_COMPOSITE_KEY"
+  num_partitions: 1
