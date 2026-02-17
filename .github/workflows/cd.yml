@@ -1,0 +1,69 @@
+name: CD
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment Environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.event.inputs.environment }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to ${{ github.event.inputs.environment }}
+    environment: ${{ github.event.inputs.environment }} # GitHub Environments 사용 권장
+    runs-on: self-hosted
+
+    env:
+      REMOTE_HOST: ${{ secrets.HOST }}
+      REMOTE_USER: ${{ secrets.USER }}
+      REMOTE_GROUP: ${{ secrets.GROUP }}
+      DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+
+    # 사용자의 의도를 반영한 조건: develop->dev, main->dev/prod
+    if: (github.ref == 'refs/heads/develop' && github.event.inputs.environment == 'dev') || github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Set project name
+        shell: bash
+        run: |
+          repo_full="${{ github.repository }}"
+          echo "PROJECT_NAME=${repo_full#*/}" >> "$GITHUB_ENV"
+
+      - name: Setup SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ env.DEPLOY_KEY }}
+
+      - name: Prepare server directory
+        # 중요: 서버에 비밀번호 없는 sudo 설정이 반드시 필요합니다.
+        # Use native SSH client which works on Linux, macOS, and Windows.
+        # The ssh-agent step handles authentication automatically.
+        # sudo visudo
+        # $REMOTE_USER ALL=(ALL) NOPASSWD: /bin/mkdir, /bin/chown
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} << 'EOF'
+            sudo mkdir -p /opt/git/${{ env.PROJECT_NAME }}
+            sudo chown -R ${{ env.REMOTE_USER }}:${{ env.REMOTE_GROUP }} /opt/git/${{ env.PROJECT_NAME }}
+          EOF
+
+      - name: Rsync deploy
+        run: |
+          rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=no -p 22" ./ \
+            ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }}:/opt/git/${{ env.PROJECT_NAME }}/

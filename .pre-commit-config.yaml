@@ -1,0 +1,70 @@
+# .pre-commit-config.yaml
+fail_fast: true
+default_stages: [pre-commit]
+
+repos:
+  # 1. 보안 검사 (TruffleHog)
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.88.5
+    hooks:
+      - id: trufflehog
+        name: TruffleHog (Secrets Check)
+        entry: bash -c 'trufflehog git file://. --since-commit HEAD --only-verified --fail'
+        language: system
+
+  # 2. 코드 포맷팅 (Prettier)
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        types_or: [javascript, jsx, ts, tsx, json, yaml, markdown]
+
+  # 3. 기타 표준 검사
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ["--maxkb=102400"] # 100MB 허용
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.15.0
+    hooks:
+      - id: mypy
+        args: [--install-types, --non-interactive, --config=pyproject.toml]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.3
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # 4. 코드 복잡도 분석 (Wily)
+  - repo: local
+    hooks:
+      - id: wily
+        name: wily
+        entry: wily diff
+        language: python
+        additional_dependencies: [wily] # 가상환경에 wily 자동 설치
+        verbose: true # 통과하더라도 분석 결과를 출력하도록 설정
+
+  # 5. 커밋 메시지 규칙 검사 (Custom Local Hook)
+  - repo: local
+    hooks:
+      - id: smart-commit-msg
+        name: Generate AI Commit Message
+        entry: scripts/smart-commit-hook.sh
+        language: system
+        stages: [prepare-commit-msg]
+
+        # 중요: 커밋 메시지 파일이 생성된 직후 실행됩니다.
+      - id: validate-commit-msg
+        name: Validate Commit Message
+        entry: python3 scripts/validate_commit.py
+        language: system
+        stages: [commit-msg]

@@ -1,0 +1,16 @@
+{
+  "name": "repo-base",
+  "version": "1.0.0",
+  "description": "Project Template with AI Commit & Security Checks",
+  "scripts": {
+    "setup": "bash ./scripts/setup.sh",
+    "commit": "git commit"
+  },
+  "devDependencies": {
+    "opencommit": "latest",
+    "prettier": "latest"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
