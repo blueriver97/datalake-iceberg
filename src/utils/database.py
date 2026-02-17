@@ -1,13 +1,24 @@
 # src/utils/database.py
 import re
 from collections import OrderedDict
+from enum import StrEnum
 from textwrap import dedent
 
 import pyspark.sql.functions as F
 import pyspark.sql.types as T
 from pyspark.sql import DataFrame, SparkSession
 
-from .settings import DatabaseType, Settings
+from .settings import Settings
+
+
+class DatabaseType(StrEnum):
+    """
+    Enum for supported database types.
+    """
+
+    MYSQL = "mysql"
+    MSSQL = "mssql"
+
 
 # --- Type Mappings ---
 # 데이터베이스별 데이터 타입을 Spark 타입으로 매핑합니다.

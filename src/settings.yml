@@ -2,7 +2,7 @@ vault:
   url: "http://vault.svc.internal:8200"
   username: "admin"
   password: "vaultadmin"
-  secret_path: "user/database/local-mysql"
+  secret_path: "secret/data/user/database/local-mysql"
 
 aws:
   profile: "blueriver"
@@ -21,6 +21,8 @@ kafka:
   starting_offsets: "earliest"
 
 job:
-  schemas: "store_bronze"
-  tables: "store.tb_lower,store.TB_UPPER,store.TB_COMPOSITE_KEY"
-  num_partitions: 1
+  num_partitions: 20
+  tables:
+    - store.tb_lower
+    - store.TB_UPPER
+    - store.TB_COMPOSITE_KEY
