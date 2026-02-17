@@ -126,6 +126,30 @@ class Settings(BaseSettings):
     kafka: KafkaSettings
     job: JobSettings
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # 1. YAML 소스 인스턴스 생성 및 데이터 미리 로드
+        yaml_settings = YamlConfigSettingsSource(settings_cls, cls.__config_path__)
+        yaml_data = yaml_settings()  # YAML 파일 읽기 실행
+
+        # 2. 로드된 데이터를 Vault 소스에 전달
+        vault_settings = VaultConfigSettingsSource(settings_cls, yaml_data)
+        return (
+            init_settings,
+            yaml_settings,
+            vault_settings,
+            env_settings,
+            dotenv_settings,
+            file_secret_settings,
+        )
+
     @property
     def DB_TYPE(self) -> str:
         return self.database.type
@@ -158,6 +182,23 @@ class Settings(BaseSettings):
         return f"({', '.join([f'{t!r}' for t in self.job.tables])})"
 
     @property
+    def TABLE_DICT(self) -> dict[str, list[str]]:
+        """
+        테이블 목록을 데이터베이스별로 그룹화하여 반환합니다.
+        MSSQL의 경우 'database.dbo.table' 형식을 가정합니다.
+        MySQL의 경우 'database.table' 형식을 가정합니다.
+        """
+        table_dict: dict = {}
+        for table in self.job.tables:
+            parts = table.split(".")
+            if len(parts) >= 2:
+                db_name = parts[0]
+                if db_name not in table_dict:
+                    table_dict[db_name] = []
+                table_dict[db_name].append(table)
+        return table_dict
+
+    @property
     def CATALOG(self) -> str:
         return self.iceberg.catalog
 
@@ -165,29 +206,24 @@ class Settings(BaseSettings):
     def ICEBERG_S3_ROOT_PATH(self) -> str:
         return self.iceberg.s3_root_path
 
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # 1. YAML 소스 인스턴스 생성 및 데이터 미리 로드
-        yaml_settings = YamlConfigSettingsSource(settings_cls, cls.__config_path__)
-        yaml_data = yaml_settings()  # YAML 파일 읽기 실행
+    @property
+    def PARQUET_S3_ROOT_PATH(self) -> str:
+        return self.iceberg.parquet_s3_root_path
 
-        # 2. 로드된 데이터를 Vault 소스에 전달
-        vault_settings = VaultConfigSettingsSource(settings_cls, yaml_data)
-        return (
-            init_settings,
-            yaml_settings,
-            vault_settings,
-            env_settings,
-            dotenv_settings,
-            file_secret_settings,
-        )
+    @property
+    def NUM_PARTITIONS(self) -> int:
+        return self.job.num_partitions
+
+    @property
+    def AWS_PROFILE(self) -> str:
+        return self.aws.profile
+
+    def get_table_str_for_db(self, database: str) -> str:
+        """특정 데이터베이스에 대한 테이블 목록을 SQL IN 절 형식의 문자열로 반환합니다."""
+        table_list = self.TABLE_DICT.get(database, [])
+        if not table_list:
+            return "('')"
+        return f"{tuple(map(str.strip, table_list))}".replace(",)", ")")
 
 
 # if __name__ == "__main__":

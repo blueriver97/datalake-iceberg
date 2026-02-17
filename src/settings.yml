@@ -24,7 +24,7 @@ kafka:
   starting_offsets: "earliest"
 
 job:
-  num_partitions: 20
+  num_partitions: 1
   tables:
     - store.tb_lower
     - store.TB_UPPER
