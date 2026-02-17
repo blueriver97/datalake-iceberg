@@ -18,7 +18,7 @@ while IFS='=' read -r key value; do
 done < .env
 
 # kafka-clients 버전은 카프카 버전을 따라감.
-# (2026-02-17) log4j-slf4j-impl 버전은 Spark 내 log4j 버전을 따라감. (spark 4.1.1 기준 2.24.3)
+# (2026-02-17) log4j-slf4j-impl 버전은 Spark 내 log4j 버전을 따라감. (spark 4.0.2 기준 2.24.3)
 # (2026-02-17) bundle-2.29.52.jar (Hadoop 3.4.2 기준)
 # https://hadoop.apache.org/docs/r3.4.1/hadoop-aws/tools/hadoop-aws/aws_sdk_upgrade.html
 declare -a jar_urls=(
@@ -42,7 +42,7 @@ declare -a jar_urls=(
     # OpenLineage
     "https://repo1.maven.org/maven2/io/openlineage/openlineage-spark_2.13/1.43.0/openlineage-spark_2.13-1.43.0.jar"
     "https://repo1.maven.org/maven2/org/apache/spark/spark-hive_2.13/${SPARK_VERSION}/spark-hive_2.13-${SPARK_VERSION}.jar"
-    "https://repo1.maven.org/maven2/org/apache/hive/hive-exec/${SPARK_VERSION}/hive-exec-${SPARK_VERSION}.jar"
+    "https://repo1.maven.org/maven2/org/apache/hive/hive-exec/4.2.0/hive-exec-4.2.0.jar"
 )
 
 

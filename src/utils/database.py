@@ -72,7 +72,7 @@ MSSQL_TYPE_MAPPING = {
 }
 
 
-def convert_db_type_to_spark(column_type: str, db_type: DatabaseType) -> T.DataType:
+def convert_db_type_to_spark(column_type: str, db_type: str) -> T.DataType:
     """Converts a database-specific column type string to a Spark DataType."""
     type_map = MYSQL_TYPE_MAPPING if db_type == DatabaseType.MYSQL else MSSQL_TYPE_MAPPING
     type_name_match = re.match(r"^\w+", column_type.lower())

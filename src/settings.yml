@@ -4,6 +4,9 @@ vault:
   password: "vaultadmin"
   secret_path: "secret/data/user/database/local-mysql"
 
+database:
+  type: "mysql"
+
 aws:
   profile: "blueriver"
 

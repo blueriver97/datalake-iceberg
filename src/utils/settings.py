@@ -85,6 +85,7 @@ class VaultSettings(BaseModel):
 
 
 class DatabaseSettings(BaseModel):
+    type: str = Field(default="mysql", description="Database type (mysql, mssql)")
     host: str = Field(default="localhost", description="Database host address")
     port: int = Field(default=3306, description="Database port number")
     user: str = Field(default="root", description="Database username")
@@ -124,6 +125,45 @@ class Settings(BaseSettings):
     iceberg: IcebergSettings
     kafka: KafkaSettings
     job: JobSettings
+
+    @property
+    def DB_TYPE(self) -> str:
+        return self.database.type
+
+    @property
+    def DB_HOST(self) -> str:
+        return self.database.host
+
+    @property
+    def DB_PORT(self) -> int:
+        return self.database.port
+
+    @property
+    def DB_USER(self) -> str:
+        return self.database.user
+
+    @property
+    def DB_PASSWORD(self) -> str:
+        return self.database.password.get_secret_value()
+
+    @property
+    def TABLE_LIST(self) -> list[str]:
+        return self.job.tables
+
+    @property
+    def TABLE_STR(self) -> str:
+        if not self.job.tables:
+            return "('')"
+        # 테이블 목록을 SQL IN 절에 사용할 수 있는 문자열로 변환
+        return f"({', '.join([f'{t!r}' for t in self.job.tables])})"
+
+    @property
+    def CATALOG(self) -> str:
+        return self.iceberg.catalog
+
+    @property
+    def ICEBERG_S3_ROOT_PATH(self) -> str:
+        return self.iceberg.s3_root_path
 
     @classmethod
     def settings_customise_sources(

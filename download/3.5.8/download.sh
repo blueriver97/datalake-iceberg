@@ -40,7 +40,7 @@ declare -a jar_urls=(
     # OpenLineage
     "https://repo1.maven.org/maven2/io/openlineage/openlineage-spark_2.12/1.43.0/openlineage-spark_2.12-1.43.0.jar"
     "https://repo1.maven.org/maven2/org/apache/spark/spark-hive_2.12/${SPARK_VERSION}/spark-hive_2.12-${SPARK_VERSION}.jar"
-    "https://repo1.maven.org/maven2/org/apache/hive/hive-exec/${SPARK_VERSION}/hive-exec-${SPARK_VERSION}.jar"
+    "https://repo1.maven.org/maven2/org/apache/hive/hive-exec/4.2.0/hive-exec-4.2.0.jar"
 )
 
 
