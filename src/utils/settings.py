@@ -150,6 +150,6 @@ class Settings(BaseSettings):
         )
 
 
-if __name__ == "__main__":
-    settings = Settings()
-    print(settings)
+# if __name__ == "__main__":
+#     settings = Settings()
+#     print(settings)
