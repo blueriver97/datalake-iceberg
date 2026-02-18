@@ -17,7 +17,7 @@ class DatabaseType(StrEnum):
     """
 
     MYSQL = "mysql"
-    MSSQL = "mssql"
+    SQLSERVER = "sqlserver"
 
 
 # --- Type Mappings ---
@@ -100,7 +100,7 @@ def get_jdbc_options(config: Settings, database: str | None = None) -> dict[str,
         db_name = database if database else ""
         options["url"] = f"jdbc:mysql://{config.DB_HOST}:{config.DB_PORT}/{db_name}"
         options["driver"] = "com.mysql.cj.jdbc.Driver"
-    elif config.DB_TYPE == DatabaseType.MSSQL:
+    elif config.DB_TYPE == DatabaseType.SQLSERVER:
         db_prop = f";databaseName={database}" if database else ""
         options["url"] = f"jdbc:sqlserver://{config.DB_HOST}:{config.DB_PORT}{db_prop};encrypt=false;"
         options["driver"] = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
@@ -128,7 +128,9 @@ def get_primary_keys(spark: SparkSession, config: Settings) -> dict[str, list[st
     if not config.TABLE_LIST:
         return {}
 
-    db_name = config.TABLE_LIST[0].split(".")[0] if config.TABLE_LIST and config.DB_TYPE == DatabaseType.MSSQL else None
+    db_name = (
+        config.TABLE_LIST[0].split(".")[0] if config.TABLE_LIST and config.DB_TYPE == DatabaseType.SQLSERVER else None
+    )
 
     if config.DB_TYPE == DatabaseType.MYSQL:
         query = dedent(f"""
@@ -136,7 +138,7 @@ def get_primary_keys(spark: SparkSession, config: Settings) -> dict[str, list[st
             FROM information_schema.COLUMNS
             WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) IN {config.TABLE_STR} AND COLUMN_KEY = 'PRI'
         """)
-    elif config.DB_TYPE == DatabaseType.MSSQL:
+    elif config.DB_TYPE == DatabaseType.SQLSERVER:
         # MSSQL의 경우, 각 데이터베이스 컨텍스트에서 쿼리를 실행해야 할 수 있습니다.
         # This query assumes it will be run in the context of the correct database for MSSQL.
         query = dedent(f"""
@@ -154,15 +156,10 @@ def get_primary_keys(spark: SparkSession, config: Settings) -> dict[str, list[st
 
     pk_info = df.groupBy("TABLE_SCHEMA", "TABLE_NAME").agg(F.collect_list("COLUMN_NAME").alias("COLUMNS"))
 
-    if config.DB_TYPE == DatabaseType.MSSQL:
+    if config.DB_TYPE == DatabaseType.SQLSERVER:
         return {f"{row['TABLE_SCHEMA']}.dbo.{row['TABLE_NAME']}": row["COLUMNS"] for row in pk_info.collect()}
 
     return {f"{row['TABLE_SCHEMA']}.{row['TABLE_NAME']}": row["COLUMNS"] for row in pk_info.collect()}
-
-
-# get_table_schema_info, get_partition_key_info 같은 다른 유틸리티 함수들도 위와 유사한 패턴으로 추가될 수 있습니다.
-# Additional utility functions like get_table_schema_info and get_partition_key_info can be added here
-# following a similar pattern.
 
 
 def get_table_schema_info(spark: SparkSession, config: Settings) -> dict[str, dict[str, str]]:
@@ -170,7 +167,9 @@ def get_table_schema_info(spark: SparkSession, config: Settings) -> dict[str, di
     if not config.TABLE_LIST:
         return {}
 
-    db_name = config.TABLE_LIST[0].split(".")[0] if config.TABLE_LIST and config.DB_TYPE == DatabaseType.MSSQL else None
+    db_name = (
+        config.TABLE_LIST[0].split(".")[0] if config.TABLE_LIST and config.DB_TYPE == DatabaseType.SQLSERVER else None
+    )
 
     if config.DB_TYPE == DatabaseType.MYSQL:
         query = dedent(f"""
@@ -178,7 +177,7 @@ def get_table_schema_info(spark: SparkSession, config: Settings) -> dict[str, di
             FROM information_schema.COLUMNS
             WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) IN {config.TABLE_STR}
         """)
-    elif config.DB_TYPE == DatabaseType.MSSQL:
+    elif config.DB_TYPE == DatabaseType.SQLSERVER:
         query = dedent(f"""
             SELECT TABLE_CATALOG AS TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE AS COLUMN_TYPE, ORDINAL_POSITION
             FROM {db_name}.INFORMATION_SCHEMA.COLUMNS
@@ -190,12 +189,6 @@ def get_table_schema_info(spark: SparkSession, config: Settings) -> dict[str, di
     options = get_jdbc_options(config, db_name)
     df = _execute_jdbc_query(spark, options, query).orderBy("TABLE_SCHEMA", "TABLE_NAME", "ORDINAL_POSITION")
 
-    # schema_info = (
-    #     df.groupBy("TABLE_SCHEMA", "TABLE_NAME")
-    #     .agg(F.collect_list(F.struct(F.col("COLUMN_NAME"), F.col("COLUMN_TYPE"))).alias("COLUMNS"))
-    #     .select(F.col("TABLE_SCHEMA"), F.col("TABLE_NAME"), F.map_from_entries("COLUMNS").alias("COLUMNS"))
-    # )
-
     # 테이블별 컬럼 dict 생성
     schema_info: dict[tuple[str, str], dict[str, str]] = {}
     for row in df.collect():
@@ -206,7 +199,7 @@ def get_table_schema_info(spark: SparkSession, config: Settings) -> dict[str, di
 
     # MSSQL의 경우 'dbo' 스키마를 이름에 포함시켜 일관성을 유지합니다.
     # For MSSQL, include the 'dbo' schema in the name for consistency.
-    if config.DB_TYPE == DatabaseType.MSSQL:
+    if config.DB_TYPE == DatabaseType.SQLSERVER:
         return {f"{schema}.dbo.{table}": cols for (schema, table), cols in schema_info.items()}
 
     return {f"{schema}.{table}": cols for (schema, table), cols in schema_info.items()}
@@ -222,7 +215,9 @@ def get_partition_key_info(spark: SparkSession, config: Settings, database: str 
 
     jdbc_options = get_jdbc_options(config, database)
     table_str = (
-        config.get_table_str_for_db(database) if database and config.DB_TYPE == DatabaseType.MSSQL else config.TABLE_STR
+        config.get_table_str_for_db(database)
+        if database and config.DB_TYPE == DatabaseType.SQLSERVER
+        else config.TABLE_STR
     )
 
     if config.DB_TYPE == DatabaseType.MYSQL:
@@ -242,7 +237,7 @@ def get_partition_key_info(spark: SparkSession, config: Settings, database: str 
                           AND (c.ORDINAL_POSITION = COALESCE(t.extra_ordinal, t.min_ordinal))
             ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
         """)
-    elif config.DB_TYPE == DatabaseType.MSSQL:
+    elif config.DB_TYPE == DatabaseType.SQLSERVER:
         query = dedent(f"""
             SELECT t.DB_NAME AS TABLE_SCHEMA
                  , c.TABLE_NAME
