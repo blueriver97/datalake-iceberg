@@ -29,7 +29,8 @@ def process_table_to_parquet(
     if len(parts) == 3:
         schema, _, table = parts
     else:
-        schema, table = parts
+        # 테이블 형식이 올바르지 않은 경우 예외 발생
+        raise ValueError(f"Invalid table name format: '{table_name}'. Expected 'db.schema.table'.")
 
     # Parquet 저장 경로 설정 ('dbo' 등 스키마는 경로에 포함)
     parquet_dir = f"{config.PARQUET_S3_ROOT_PATH}/{schema}/{table}"
@@ -70,7 +71,7 @@ def process_table_to_parquet(
     (
         jdbc_df.withColumn(
             "update_ts_dms",
-            F.date_format(F.from_utc_timestamp(F.current_timestamp(), "Asia/Seoul"), "yyyy-MM-dd HH:mm:ss.SSS"),
+            F.date_format(F.from_utc_timestamp(F.current_timestamp(), "UTC"), "yyyy-MM-dd HH:mm:ss.SSS"),
         )
         .write.mode("overwrite")
         .parquet(parquet_dir)

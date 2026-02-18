@@ -30,8 +30,7 @@ def process_table_to_parquet(
         schema, table = parts
     else:
         # 예외적인 경우 처리 (혹은 에러 발생)
-        schema = config.DB_TYPE  # fallback
-        table = table_name
+        raise ValueError(f"Invalid table name format: '{table_name}'. Expected 'db.table'.")
 
     # Parquet 저장 경로 설정
     parquet_dir = f"{config.PARQUET_S3_ROOT_PATH}/{schema}/{table}"
