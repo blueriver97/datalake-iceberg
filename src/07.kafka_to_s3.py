@@ -50,7 +50,7 @@ def process_batch(
 
         # S3에 Parquet 포맷으로 저장
         # 파티셔닝: topic/year/month/day
-        s3_path = f"{settings.ICEBERG_S3_ROOT_PATH}/raw_data"
+        s3_path = f"{settings.ICEBERG_S3_ROOT_PATH}/sink"
         (processed_df.write.format("parquet").partitionBy("topic", "year", "month", "day").mode("append").save(s3_path))
 
     logger.info(f"Successfully processed {batch_df.count()} records.")
@@ -74,14 +74,13 @@ if __name__ == "__main__":
         )
         .config("spark.sql.caseSensitive", "true")
         .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.legacy.timeParserPolicy", "LEGACY")
         .config("spark.metrics.namespace", settings.kafka.metric_namespace)
         .getOrCreate()
     )
 
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
-    logger = logger_manager.get_logger(__name__)
+    logger = logger_manager.get_logger()
 
     logger.info("Spark App Name: KafkaToS3")
     # 구독할 토픽 목록 생성 (prefix + table)

@@ -112,14 +112,23 @@ def cast_column(column: Column, debezium_dtype: str) -> Column:
     Returns:
         변환된 Spark Column 객체
     """
+    # Avro 스키마의 default: 0 때문에 강제 주입된 값을 걸러냅니다.
+    # column.isNotNull() 만으로는 부족하며, 반드시 (column != 0) 체크가 병행되어야 합니다.
+
     if debezium_dtype == "io.debezium.time.Date":
         return F.date_add(F.lit("1970-01-01"), column.cast("int"))
     elif debezium_dtype == "io.debezium.time.MicroTime":
         return F.to_utc_timestamp(F.timestamp_seconds(column / 1_000_000), "UTC")
     elif debezium_dtype == "io.debezium.time.Timestamp":
-        return F.to_utc_timestamp(F.timestamp_millis(column), "Asia/Seoul")
+        is_valid = column.isNotNull() & (column != 0)
+        return F.when(is_valid, F.to_utc_timestamp(F.timestamp_millis(column), "Asia/Seoul")).otherwise(
+            F.lit(None).cast(T.TimestampType())
+        )  # 0을 NULL로 강제 환원
     elif debezium_dtype == "io.debezium.time.MicroTimestamp":
-        return F.to_utc_timestamp(F.timestamp_micros(column), "Asia/Seoul")
+        is_valid = column.isNotNull() & (column != 0)
+        return F.when(is_valid, F.to_utc_timestamp(F.timestamp_millis(column), "Asia/Seoul")).otherwise(
+            F.lit(None).cast(T.TimestampType())
+        )  # 0을 NULL로 강제 환원
     elif debezium_dtype == "io.debezium.time.ZonedTimestamp":
         pass
     return column
@@ -156,7 +165,7 @@ def process_table(
     debezium_schema: dict,
     pk_cols: list,
 ) -> None:
-    logger = SparkLoggerManager().get_logger(__name__)
+    logger = SparkLoggerManager().get_logger()
 
     iceberg_schema, iceberg_table = f"{schema.lower()}_bronze", table.lower()
     full_table_name = f"{config.CATALOG}.{iceberg_schema}.{iceberg_table}"
@@ -220,7 +229,7 @@ def process_batch(
     config: Settings,
     schema_registry_client: SchemaRegistryClient,
 ) -> None:
-    logger = SparkLoggerManager().get_logger(__name__)
+    logger = SparkLoggerManager().get_logger()
 
     logger.info(f"<batch-{batch_id}, {batch_df.count()}>")
     if batch_df.isEmpty():
@@ -232,7 +241,7 @@ def process_batch(
     for table_identifier in config.TABLE_LIST:
         if config.DB_TYPE == "mysql":
             schema, table = table_identifier.split(".")
-        elif config.DB_TYPE == "mssql":
+        elif config.DB_TYPE == "sqlserver":
             schema, _, table = table_identifier.split(".", 2)
         else:
             logger.error(f"Unsupported DB_TYPE: {config.DB_TYPE}")
@@ -305,25 +314,14 @@ def process_batch(
             # 필요한 컬럼 선택 및 이름 변경
             # value.after.* : 변경 후 데이터
             # value.op : 작업 유형
-            # value.ts_ms : 소스 DB 변경 시간
+            # value.ts_ms : Debezium 메시지 처리 시간
             # offset : Kafka 오프셋
             # id_iceberg : Iceberg PK (Hash)
-
-            # 스키마에 없는 컬럼 접근 시 에러 방지를 위해 * 사용 보다는 명시적 컬럼 선택이 좋으나,
-            # 동적 스키마 처리를 위해 value.after.* 사용.
-            # 단, value.after가 null인 경우 (delete) 고려 필요.
-            # Delete 시에는 value.before를 사용해야 할 수도 있으나,
-            # Debezium 설정에 따라 delete 시 after가 null일 수 있음.
-            # 여기서는 기존 로직(value.after.*)을 따르되, delete 시에는 id_iceberg만 있으면 됨.
-
-            # 개선: op가 'd'인 경우 value.before를 참조하거나, id_iceberg만으로 삭제 처리.
-            # 현재 로직은 value.after.*를 select 하므로 delete 시 null로 채워질 수 있음.
-
             transformed_df = transformed_df.select(
                 "value.after.*",
                 F.col("value.op").alias("__op"),
                 F.col("offset").alias("__offset"),
-                F.col("value.ts_ms").alias("last_applied_date"),
+                F.timestamp_millis(F.col("value.ts_ms")).alias("last_applied_date"),
                 F.col("id_iceberg"),
             )
 

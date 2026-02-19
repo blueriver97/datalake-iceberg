@@ -40,7 +40,7 @@ def process_mssql_to_iceberg(
         primary_keys (dict): 기본키 정보
         partition_keys (dict): 파티션 키 정보
     """
-    logger = SparkLoggerManager().get_logger(__name__)
+    logger = SparkLoggerManager().get_logger()
 
     # MSSQL table name format (database.dbo.table) parsing
     parts = table_name.split(".")
@@ -123,7 +123,7 @@ def main(spark: SparkSession, config: Settings) -> None:
     """
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
-    logger = logger_manager.get_logger(__name__)
+    logger = logger_manager.get_logger()
 
     logger.info("Starting Iceberg table creation from MSSQL.")
     logger.info(f"Target tables: {config.TABLE_LIST}")

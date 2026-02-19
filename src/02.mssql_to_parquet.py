@@ -22,7 +22,7 @@ def process_table_to_parquet(
         jdbc_options (dict): JDBC 연결 옵션
         partition_keys (dict): 파티션 키 정보
     """
-    logger = SparkLoggerManager().get_logger(__name__)
+    logger = SparkLoggerManager().get_logger()
 
     # 테이블명 파싱 (MSSQL: db.schema.table, MySQL: db.table)
     parts = table_name.split(".")
@@ -85,7 +85,7 @@ def main(spark: SparkSession, config: Settings) -> None:
     """
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
-    logger = logger_manager.get_logger(__name__)
+    logger = logger_manager.get_logger()
 
     logger.info("Starting Parquet conversion from source DB.")
     logger.info(f"Target tables: {config.TABLE_LIST}")

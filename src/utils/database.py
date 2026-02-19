@@ -98,7 +98,7 @@ def get_jdbc_options(config: Settings, database: str | None = None) -> dict[str,
 
     if config.DB_TYPE == DatabaseType.MYSQL:
         db_name = database if database else ""
-        options["url"] = f"jdbc:mysql://{config.DB_HOST}:{config.DB_PORT}/{db_name}"
+        options["url"] = f"jdbc:mysql://{config.DB_HOST}:{config.DB_PORT}/{db_name}?zeroDateTimeBehavior=convertToNull"
         options["driver"] = "com.mysql.cj.jdbc.Driver"
     elif config.DB_TYPE == DatabaseType.SQLSERVER:
         db_prop = f";databaseName={database}" if database else ""

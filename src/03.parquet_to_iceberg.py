@@ -35,7 +35,7 @@ def process_parquet_to_iceberg(spark: SparkSession, config: Settings, table_name
         table_name (str): 대상 테이블 명
         pk_cols (list[str]): 기본키 컬럼 리스트
     """
-    logger = SparkLoggerManager().get_logger(__name__)
+    logger = SparkLoggerManager().get_logger()
 
     schema, table = table_name.split(".")
     bronze_schema = f"{schema.lower()}_bronze"
@@ -80,7 +80,7 @@ def main(spark: SparkSession, config: Settings) -> None:
     """
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
-    logger = logger_manager.get_logger(__name__)
+    logger = logger_manager.get_logger()
 
     logger.info("Starting Iceberg table creation from Parquet.")
     logger.info(f"Target tables: {config.TABLE_STR}")

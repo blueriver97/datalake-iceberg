@@ -37,20 +37,18 @@ class SparkLoggerManager:
             except Exception as e:
                 print(f"Error: Failed to setup Log4j 2. Detail: {str(e)}")
 
-    def get_logger(self, name=None):
+    def get_logger(self, name: str = ""):
         """JVM 로거 객체 반환"""
         if not self._initialized or self._log_manager is None:
             print("Warning: SparkLoggerManager not initialized. Call setup(spark) first.")
             return None
 
-        # 이름이 없으면 현재 파일명 등을 사용
-        logger_name = name if name else __name__
         # JVM의 getLogger 호출
-        return self._log_manager.getLogger(logger_name)
+        return self._log_manager.getLogger("org.apache.spark." + name if name else "org.apache.spark")
 
 
 # 사용 예시
 # manager = SparkLoggerManager()
 # manager.setup(spark)
-# logger = manager.get_logger("MySparkApp")
+# logger = manager.get_logger("org.apache.spark")
 # logger.info("This is an INFO level log from PySpark")

@@ -85,7 +85,7 @@ class VaultSettings(BaseModel):
 
 
 class DatabaseSettings(BaseModel):
-    type: str = Field(default="mysql", description="Database type (mysql, mssql)")
+    type: str = Field(default="mysql", description="Database type (mysql, sqlserver)")
     host: str = Field(default="localhost", description="Database host address")
     port: int = Field(default=3306, description="Database port number")
     user: str = Field(default="root", description="Database username")

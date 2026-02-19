@@ -26,7 +26,7 @@ def get_target_tables(spark: SparkSession, config: Settings) -> list[str]:
 
 def perform_maintenance(spark: SparkSession, config: Settings, table: str) -> None:
     # 로거 초기화
-    logger = SparkLoggerManager().get_logger(__name__)
+    logger = SparkLoggerManager().get_logger()
 
     # 설정 변수 할당
     TARGET_FILE_SIZE_BYTES = 134217728
@@ -84,7 +84,7 @@ def perform_maintenance(spark: SparkSession, config: Settings, table: str) -> No
 def main(spark: SparkSession, config: Settings) -> None:
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
-    logger = logger_manager.get_logger(__name__)
+    logger = logger_manager.get_logger()
 
     logger.info("Starting Iceberg table maintenance procedure.")
 

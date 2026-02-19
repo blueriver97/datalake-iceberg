@@ -31,10 +31,10 @@ def process_table_schema(
     Returns:
         None
     """
-    logger = SparkLoggerManager().get_logger(__name__)
+    logger = SparkLoggerManager().get_logger()
 
     parts = table_name.split(".")
-    if len(parts) == 3 and config.DB_TYPE == DatabaseType.MSSQL:
+    if len(parts) == 3 and config.DB_TYPE == DatabaseType.SQLSERVER:
         schema, _, table = parts
     else:
         schema, table = parts
@@ -87,7 +87,7 @@ def main(spark: SparkSession, config: Settings) -> None:
     """
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
-    logger = logger_manager.get_logger(__name__)
+    logger = logger_manager.get_logger()
 
     logger.info("Starting Iceberg table creation from schema.")
     logger.info(f"Target tables: {config.TABLE_LIST}")
