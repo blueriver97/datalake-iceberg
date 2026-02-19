@@ -29,3 +29,5 @@ job:
     - store.tb_lower
     - store.TB_UPPER
     - store.TB_COMPOSITE_KEY
+  schemas:
+    - store_bronze

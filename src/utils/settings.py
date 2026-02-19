@@ -114,6 +114,7 @@ class KafkaSettings(BaseModel):
 class JobSettings(BaseModel):
     num_partitions: int = Field(default=20)
     tables: list[str]
+    schemas: list[str]
 
 
 class Settings(BaseSettings):
@@ -169,6 +170,10 @@ class Settings(BaseSettings):
     @property
     def DB_PASSWORD(self) -> str:
         return self.database.password.get_secret_value()
+
+    @property
+    def SCHEMA_LIST(self) -> list[str]:
+        return self.job.schemas
 
     @property
     def TABLE_LIST(self) -> list[str]:
