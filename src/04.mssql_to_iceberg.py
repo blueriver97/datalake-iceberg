@@ -94,6 +94,14 @@ def process_mssql_to_iceberg(
     spark.sql(f"CREATE DATABASE IF NOT EXISTS {config.CATALOG}.{bronze_schema}")
 
     logger.info(f"Creating or replacing {full_table_name}")
+    # Note. Merge On Read / Accept-Schema 활성화 시 아래 옵션 추가 필요.
+    # Note. write.spark.accept-any-schema 활성화 시 Merge Into ... UNRESOLVED_COLUMN.WITH_SUGGESTION 오류 발생됨.
+    """
+        'write.spark.accept-any-schema'='true',
+        'write.delete.mode'='merge-on-read',
+        'write.update.mode'='merge-on-read',
+        'write.merge.mode'='merge-on-read',
+    """
 
     if pk_cols:
         jdbc_df = jdbc_df.withColumn("id_iceberg", F.md5(F.concat_ws("|", *[F.col(pk) for pk in pk_cols])))
@@ -111,6 +119,7 @@ def process_mssql_to_iceberg(
             writer.tableProperty("write.metadata.delete-after-commit.enabled", "true")
             .tableProperty("write.metadata.previous-versions-max", "5")
             .tableProperty("history.expire.max-snapshot-age-ms", "86400000")
+            # .partitionedBy(F.bucket(num_partition, "id_iceberg"))
         )
 
     writer.createOrReplace()

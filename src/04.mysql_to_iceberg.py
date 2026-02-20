@@ -91,6 +91,14 @@ def process_mysql_to_iceberg(
     spark.sql(f"CREATE DATABASE IF NOT EXISTS {config.CATALOG}.{bronze_schema}")
 
     logger.info(f"Creating or replacing {full_table_name}")
+    # Note. Merge On Read / Accept-Schema 활성화 시 아래 옵션 추가 필요.
+    # Note. write.spark.accept-any-schema 활성화 시 Merge Into ... UNRESOLVED_COLUMN.WITH_SUGGESTION 오류 발생됨.
+    """
+        'write.spark.accept-any-schema'='true',
+        'write.delete.mode'='merge-on-read',
+        'write.update.mode'='merge-on-read',
+        'write.merge.mode'='merge-on-read',
+    """
 
     if pk_cols:
         jdbc_df = jdbc_df.withColumn("id_iceberg", F.md5(F.concat_ws("|", *[F.col(pk) for pk in pk_cols])))
@@ -108,6 +116,7 @@ def process_mysql_to_iceberg(
             writer.tableProperty("write.metadata.delete-after-commit.enabled", "true")
             .tableProperty("write.metadata.previous-versions-max", "5")
             .tableProperty("history.expire.max-snapshot-age-ms", "86400000")
+            # .partitionedBy(F.bucket(num_partition, "id_iceberg"))
         )
 
     writer.createOrReplace()
@@ -132,6 +141,7 @@ def main(spark: SparkSession, config: Settings) -> None:
     # 데이터베이스별로 그룹화된 테이블 목록을 순회
     for database, table_list in config.TABLE_DICT.items():
         try:
+            # Note. Retrieve primary key and partition key information from the database.
             jdbc_options = get_jdbc_options(config, database)
             primary_keys = get_primary_keys(spark, config)
             partition_keys = get_partition_key_info(spark, config, database)
@@ -172,7 +182,7 @@ if __name__ == "__main__":
     os.environ["AWS_PROFILE"] = settings.AWS_PROFILE
 
     spark = (
-        SparkSession.builder.appName("MySQLToIceberg")
+        SparkSession.builder.appName("mysql_to_iceberg")
         .config("spark.sql.defaultCatalog", settings.CATALOG)
         .config(f"spark.sql.catalog.{settings.CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
         .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
