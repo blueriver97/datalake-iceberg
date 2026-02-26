@@ -30,19 +30,17 @@ declare -a jar_urls=(
     "https://repo1.maven.org/maven2/org/apache/spark/spark-avro_2.13/${SPARK_VERSION}/spark-avro_2.13-${SPARK_VERSION}.jar"
     "https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.9.1/kafka-clients-3.9.1.jar"
     "https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.12.1/commons-pool2-2.12.1.jar"
-    "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.2.0.jre8/mssql-jdbc-12.2.0.jre8.jar"
-    "https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.30/mysql-connector-java-8.0.30.jar"
+    "https://repo1.maven.org/maven2/com/microsoft/sqlserver/mssql-jdbc/12.2.0.jre11/mssql-jdbc-12.2.0.jre11.jar"
+    "https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.33/mysql-connector-java-8.0.33.jar"
     "https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-slf4j-impl/2.24.3/log4j-slf4j-impl-2.24.3.jar"
     "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/${HADOOP_VERSION}/hadoop-aws-${HADOOP_VERSION}.jar"
-    "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-kafka/${HADOOP_VERSION}/hadoop-kafka-${HADOOP_VERSION}.jar"
     "https://repo1.maven.org/maven2/software/amazon/awssdk/bundle/2.29.52/bundle-2.29.52.jar"
     # Polaris
     "https://repo1.maven.org/maven2/org/apache/polaris/polaris-spark-3.5_2.13/1.3.0-incubating/polaris-spark-3.5_2.13-1.3.0-incubating.jar"
     "https://repo1.maven.org/maven2/org/apache/polaris/polaris-core/1.3.0-incubating/polaris-core-1.3.0-incubating.jar"
     # OpenLineage
-    "https://repo1.maven.org/maven2/io/openlineage/openlineage-spark_2.13/1.43.0/openlineage-spark_2.13-1.43.0.jar"
+    "https://repo1.maven.org/maven2/io/openlineage/openlineage-spark_2.13/1.44.0/openlineage-spark_2.13-1.44.0.jar"
     "https://repo1.maven.org/maven2/org/apache/spark/spark-hive_2.13/${SPARK_VERSION}/spark-hive_2.13-${SPARK_VERSION}.jar"
-    "https://repo1.maven.org/maven2/org/apache/hive/hive-exec/4.2.0/hive-exec-4.2.0.jar"
 )
 
 
