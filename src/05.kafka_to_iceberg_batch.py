@@ -156,6 +156,66 @@ def cast_dataframe(df: DataFrame, catalog_schema: T.StructType, debezium_schema:
     )
 
 
+def ensure_watermark_table(spark: SparkSession, config: Settings) -> None:
+    """ops_bronze.cdc_watermark 테이블이 없으면 생성한다."""
+    logger = SparkLoggerManager().get_logger()
+    full_table_name = f"{config.CATALOG}.ops_bronze.cdc_watermark"
+    if not spark.catalog.tableExists(full_table_name):
+        logger.info(f"Creating watermark table: {full_table_name}")
+        spark.sql(f"CREATE DATABASE IF NOT EXISTS {config.CATALOG}.ops_bronze")
+        spark.sql(f"""
+            CREATE TABLE {full_table_name} (
+                dag_id         STRING,
+                bronze_schema  STRING,
+                table_name     STRING,
+                event_count    BIGINT,
+                max_event_ts   TIMESTAMP,
+                processed_at   TIMESTAMP
+            ) USING iceberg
+            TBLPROPERTIES (
+                'format-version' = '2',
+                'write.metadata.delete-after-commit.enabled' = 'true',
+                'write.metadata.previous-versions-max' = '5'
+            )
+        """)
+
+
+def upsert_watermark(
+    spark: SparkSession,
+    config: Settings,
+    dag_id: str,
+    bronze_schema: str,
+    table_name: str,
+    event_count: int,
+    max_event_ts,
+) -> None:
+    """cdc_watermark 테이블에 CDC 처리 기록을 upsert한다."""
+    logger = SparkLoggerManager().get_logger()
+    max_event_ts_expr = f"TIMESTAMP '{max_event_ts}'" if max_event_ts else "CAST(NULL AS TIMESTAMP)"
+    stmt = f"""
+        MERGE INTO {config.CATALOG}.ops_bronze.cdc_watermark t
+        USING (
+            SELECT
+                '{dag_id}' AS dag_id,
+                '{bronze_schema}' AS bronze_schema,
+                '{table_name}' AS table_name,
+                {event_count} AS event_count,
+                {max_event_ts_expr} AS max_event_ts,
+                current_timestamp() AS processed_at
+        ) s
+        ON t.dag_id = s.dag_id
+           AND t.bronze_schema = s.bronze_schema
+           AND t.table_name = s.table_name
+        WHEN MATCHED THEN UPDATE SET
+            t.event_count = s.event_count,
+            t.max_event_ts = s.max_event_ts,
+            t.processed_at = s.processed_at
+        WHEN NOT MATCHED THEN INSERT *
+    """
+    spark.sql(stmt)
+    logger.info(f"watermark updated: {bronze_schema}.{table_name}, events={event_count}, max_ts={max_event_ts}")
+
+
 def process_table(
     spark: SparkSession,
     config: Settings,
@@ -256,8 +316,19 @@ def process_batch(
         target_topic = f"{config.kafka.topic_prefix}.{schema}.{table}"
 
         filtered_df = batch_df.filter(F.col("topic") == target_topic)
+        iceberg_schema = f"{schema.lower()}_bronze"
+        iceberg_table = table.lower()
 
         if filtered_df.isEmpty():
+            upsert_watermark(
+                spark,
+                config,
+                config.kafka.metric_namespace,
+                iceberg_schema,
+                iceberg_table,
+                event_count=0,
+                max_event_ts=None,
+            )
             continue
 
         # 메시지 내 Schema ids 추출 및 Schema registry 조회
@@ -327,6 +398,21 @@ def process_batch(
 
             process_table(spark, config, schema, table, transformed_df, debezium_schema, pk_cols)
 
+        # watermark 기록 (테이블 처리 완료 후)
+        stats = filtered_df.agg(
+            F.count("*").alias("cnt"),
+            F.max("timestamp").alias("max_ts"),
+        ).collect()[0]
+        upsert_watermark(
+            spark,
+            config,
+            config.kafka.metric_namespace,
+            iceberg_schema,
+            iceberg_table,
+            event_count=stats["cnt"],
+            max_event_ts=stats["max_ts"],
+        )
+
     batch_df.unpersist()
 
 
@@ -360,6 +446,9 @@ if __name__ == "__main__":
     # 로거 초기화
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
+
+    # CDC Watermark 테이블 초기화
+    ensure_watermark_table(spark, settings)
 
     schema_registry_client = SchemaRegistryClient({"url": settings.kafka.schema_registry})
 
