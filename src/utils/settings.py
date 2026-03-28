@@ -113,6 +113,7 @@ class KafkaSettings(BaseModel):
 
 class JobSettings(BaseModel):
     num_partitions: int = Field(default=20)
+    tier: str = Field(default="batch", description="Job tier: hot, cold, or batch (legacy)")
     tables: list[str]
     schemas: list[str]
 

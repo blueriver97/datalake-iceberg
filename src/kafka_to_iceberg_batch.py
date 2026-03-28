@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from textwrap import dedent
 
 import pyspark.sql.functions as F
@@ -165,12 +166,16 @@ def ensure_watermark_table(spark: SparkSession, config: Settings) -> None:
         spark.sql(f"CREATE DATABASE IF NOT EXISTS {config.CATALOG}.ops_bronze")
         spark.sql(f"""
             CREATE TABLE {full_table_name} (
-                dag_id         STRING,
-                bronze_schema  STRING,
-                table_name     STRING,
-                event_count    BIGINT,
-                max_event_ts   TIMESTAMP,
-                processed_at   TIMESTAMP
+                dag_id                  STRING,
+                bronze_schema           STRING,
+                table_name              STRING,
+                event_count             BIGINT,
+                max_event_ts            TIMESTAMP,
+                processed_at            TIMESTAMP,
+                min_offset              BIGINT,
+                max_offset              BIGINT,
+                batch_id                BIGINT,
+                processing_duration_sec DOUBLE
             ) USING iceberg
             TBLPROPERTIES (
                 'format-version' = '2',
@@ -188,10 +193,18 @@ def upsert_watermark(
     table_name: str,
     event_count: int,
     max_event_ts,
+    min_offset: int | None = None,
+    max_offset: int | None = None,
+    batch_id: int | None = None,
+    processing_duration_sec: float | None = None,
 ) -> None:
     """cdc_watermark 테이블에 CDC 처리 기록을 upsert한다."""
     logger = SparkLoggerManager().get_logger()
     max_event_ts_expr = f"TIMESTAMP '{max_event_ts}'" if max_event_ts else "CAST(NULL AS TIMESTAMP)"
+    min_offset_expr = str(min_offset) if min_offset is not None else "CAST(NULL AS BIGINT)"
+    max_offset_expr = str(max_offset) if max_offset is not None else "CAST(NULL AS BIGINT)"
+    batch_id_expr = str(batch_id) if batch_id is not None else "CAST(NULL AS BIGINT)"
+    duration_expr = str(processing_duration_sec) if processing_duration_sec is not None else "CAST(NULL AS DOUBLE)"
     stmt = f"""
         MERGE INTO {config.CATALOG}.ops_bronze.cdc_watermark t
         USING (
@@ -201,7 +214,11 @@ def upsert_watermark(
                 '{table_name}' AS table_name,
                 {event_count} AS event_count,
                 {max_event_ts_expr} AS max_event_ts,
-                current_timestamp() AS processed_at
+                current_timestamp() AS processed_at,
+                {min_offset_expr} AS min_offset,
+                {max_offset_expr} AS max_offset,
+                {batch_id_expr} AS batch_id,
+                {duration_expr} AS processing_duration_sec
         ) s
         ON t.dag_id = s.dag_id
            AND t.bronze_schema = s.bronze_schema
@@ -209,11 +226,21 @@ def upsert_watermark(
         WHEN MATCHED THEN UPDATE SET
             t.event_count = s.event_count,
             t.max_event_ts = s.max_event_ts,
-            t.processed_at = s.processed_at
+            t.processed_at = s.processed_at,
+            t.min_offset = s.min_offset,
+            t.max_offset = s.max_offset,
+            t.batch_id = s.batch_id,
+            t.processing_duration_sec = s.processing_duration_sec
         WHEN NOT MATCHED THEN INSERT *
     """
     spark.sql(stmt)
-    logger.info(f"watermark updated: {bronze_schema}.{table_name}, events={event_count}, max_ts={max_event_ts}")
+    logger.info(
+        f"watermark updated: {bronze_schema}.{table_name}, "
+        f"events={event_count}, max_ts={max_event_ts}, "
+        f"offsets=[{min_offset}, {max_offset}], duration={processing_duration_sec:.1f}s"
+        if processing_duration_sec is not None
+        else f"watermark updated: {bronze_schema}.{table_name}, events={event_count}, max_ts={max_event_ts}"
+    )
 
 
 def process_table(
@@ -291,7 +318,7 @@ def process_batch(
 ) -> None:
     logger = SparkLoggerManager().get_logger()
 
-    logger.info(f"<batch-{batch_id}, {batch_df.count()}>")
+    logger.info(f"<batch-{batch_id} started>")
     if batch_df.isEmpty():
         return
 
@@ -299,6 +326,8 @@ def process_batch(
 
     # 설정된 테이블 목록을 순회하며 처리
     for table_identifier in config.TABLE_LIST:
+        table_start_time = time.monotonic()
+
         if config.DB_TYPE == "mysql":
             schema, table = table_identifier.split(".")
         elif config.DB_TYPE == "sqlserver":
@@ -307,12 +336,6 @@ def process_batch(
             logger.error(f"Unsupported DB_TYPE: {config.DB_TYPE}")
             continue
 
-        # 해당 테이블의 토픽 이름 조회 (Settings 클래스에 TOPIC_DICT 구현 필요 가정)
-        # 현재 Settings에는 TOPIC_DICT가 없으므로, topic_prefix 등을 이용해 추론하거나
-        # Settings 클래스에 해당 프로퍼티를 추가해야 함.
-        # 여기서는 기존 코드 로직을 따르되, Settings에 TOPIC_DICT가 있다고 가정하거나
-        # topic_prefix를 사용하여 토픽명을 구성함.
-        # 예: local.schema.table
         target_topic = f"{config.kafka.topic_prefix}.{schema}.{table}"
 
         filtered_df = batch_df.filter(F.col("topic") == target_topic)
@@ -328,6 +351,7 @@ def process_batch(
                 iceberg_table,
                 event_count=0,
                 max_event_ts=None,
+                batch_id=batch_id,
             )
             continue
 
@@ -399,9 +423,12 @@ def process_batch(
             process_table(spark, config, schema, table, transformed_df, debezium_schema, pk_cols)
 
         # watermark 기록 (테이블 처리 완료 후)
+        table_duration = time.monotonic() - table_start_time
         stats = filtered_df.agg(
             F.count("*").alias("cnt"),
             F.max("timestamp").alias("max_ts"),
+            F.min("offset").alias("min_offset"),
+            F.max("offset").alias("max_offset"),
         ).collect()[0]
         upsert_watermark(
             spark,
@@ -411,6 +438,10 @@ def process_batch(
             iceberg_table,
             event_count=stats["cnt"],
             max_event_ts=stats["max_ts"],
+            min_offset=stats["min_offset"],
+            max_offset=stats["max_offset"],
+            batch_id=batch_id,
+            processing_duration_sec=table_duration,
         )
 
     batch_df.unpersist()
@@ -473,11 +504,13 @@ if __name__ == "__main__":
         .withColumn("key", F.expr("substring(key, 6, length(key)-5)"))
         .withColumn("value_schema_id", F.expr("byte_to_int(substring(value, 2, 4))"))
         .withColumn("value", F.expr("substring(value, 6, length(value)-5)"))
-        .selectExpr("key_schema_id", "value_schema_id", "key", "value", "topic", "offset")
+        .selectExpr("key_schema_id", "value_schema_id", "key", "value", "topic", "offset", "timestamp")
         .writeStream.foreachBatch(
             lambda batch_df, batch_id: process_batch(batch_df, batch_id, spark, settings, schema_registry_client)
         )
-        .option("checkpointLocation", f"{settings.ICEBERG_S3_ROOT_PATH}/checkpoints/kafka_to_iceberg")
+        .option(
+            "checkpointLocation", f"{settings.ICEBERG_S3_ROOT_PATH}/checkpoints/{settings.job.tier}/kafka_to_iceberg"
+        )
         .outputMode("append")
         .trigger(availableNow=True)
         # .trigger(processingTime="5 minutes")
