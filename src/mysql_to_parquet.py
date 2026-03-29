@@ -1,48 +1,60 @@
-import os
+import argparse
 
 import pyspark.sql.functions as F
-from pyspark.sql import DataFrame, SparkSession
+import pyspark.sql.types as T
+from pyspark.sql import Column, DataFrame, SparkSession
 
 # --- Import common modules ---
-from utils.database import get_jdbc_options, get_partition_key_info
+from utils.database import BaseDatabaseManager, MySQLManager
 from utils.settings import Settings
 from utils.spark_logging import SparkLoggerManager
 
 
-def process_table_to_parquet(
-    spark: SparkSession, config: Settings, table_name: str, jdbc_options: dict, partition_keys: dict
+def cast_dataframe(df: DataFrame) -> DataFrame:
+    """MySQL CHAR 타입 Trim 처리"""
+
+    def cast_column_type(field: T.StructField) -> Column:
+        if isinstance(field.dataType, T.StringType):
+            return F.trim(F.col(field.name)).alias(field.name)
+        return F.col(field.name).alias(field.name)
+
+    return df.select([cast_column_type(field) for field in df.schema.fields])
+
+
+def process_mysql_to_parquet(
+    spark: SparkSession,
+    config: Settings,
+    db_manager: BaseDatabaseManager,
+    table_name: str,
+    num_partition: int,
 ) -> None:
     """
-    특정 테이블의 데이터를 MySQL에서 읽어 Parquet으로 저장합니다.
+    MySQL 테이블 데이터를 읽어 S3에 Parquet 파일로 저장합니다.
 
     Args:
         spark (SparkSession): Spark 세션 객체
-        config (Settings): 설정 정보 객체
-        table_name (str): 원본 테이블 명 (e.g., db.table)
-        jdbc_options (dict): JDBC 연결 옵션
-        partition_keys (dict): 파티션 키 정보
+        config (Settings): 설정 객체
+        db_manager (BaseDatabaseManager): 데이터베이스 관리자 객체
+        table_name (str): 대상 테이블 명 (db.table)
+        num_partition (int): 파티션 개수
     """
     logger = SparkLoggerManager().get_logger()
 
-    # 테이블명 파싱 (MySQL: db.table)
+    # MySQL table name format (db.table) parsing
     parts = table_name.split(".")
     if len(parts) == 2:
         schema, table = parts
     else:
-        # 예외적인 경우 처리 (혹은 에러 발생)
         raise ValueError(f"Invalid table name format: '{table_name}'. Expected 'db.table'.")
 
-    # Parquet 저장 경로 설정
-    parquet_dir = f"{config.PARQUET_S3_ROOT_PATH}/{schema}/{table}"
+    output_path = f"{config.PARQUET_WAREHOUSE}/{schema}/{table}"
 
-    # 파티션 키 조회 (partition_keys 딕셔너리 키는 'schema.table' 형식)
-    partition_column = partition_keys.get(table_name)
-
+    partition_column = db_manager.get_partition_key(spark, table_name)
+    jdbc_options = db_manager.get_jdbc_options(database=schema)
     jdbc_df: DataFrame
 
     if partition_column:
         logger.info(f"Reading '{table_name}' with partitioning on column '{partition_column}'.")
-        # 파티셔닝을 위한 min/max 값 조회 쿼리
         bound_query = f"SELECT min({partition_column}) as `lower`, max({partition_column}) as `upper` FROM {table_name}"
         bound_df = spark.read.format("jdbc").options(**jdbc_options).option("query", bound_query).load()
         bounds = bound_df.first()
@@ -60,79 +72,50 @@ def process_table_to_parquet(
                 .option("partitionColumn", partition_column)
                 .option("lowerBound", bounds["lower"])
                 .option("upperBound", bounds["upper"])
-                .option("numPartitions", config.NUM_PARTITIONS)
+                .option("numPartitions", num_partition)
                 .load()
             )
     else:
         logger.info(f"Reading '{table_name}' without partitioning.")
         jdbc_df = spark.read.format("jdbc").options(**jdbc_options).option("dbtable", table_name).load()
 
-    # 데이터 처리 및 Parquet 저장
-    (
-        jdbc_df.withColumn(
-            "update_ts_dms",
-            F.date_format(F.from_utc_timestamp(F.current_timestamp(), "UTC"), "yyyy-MM-dd HH:mm:ss.SSS"),
-        )
-        .write.mode("overwrite")
-        .parquet(parquet_dir)
-    )
-    logger.info(f"Successfully wrote Parquet for '{table_name}' to '{parquet_dir}'")
+    jdbc_df = cast_dataframe(jdbc_df)
+    jdbc_df = jdbc_df.withColumn("update_ts_dms", F.current_timestamp())
+
+    logger.info(f"Writing Parquet to {output_path}")
+    jdbc_df.write.mode("overwrite").parquet(output_path)
+    logger.info(f"Successfully wrote {table_name} to {output_path}")
 
 
-def main(spark: SparkSession, config: Settings) -> None:
+def main(spark: SparkSession, config: Settings, app_args) -> None:
     """
-    Reads data from MySQL database and saves it as Parquet files in S3.
+    Reads data from a MySQL database and saves it as Parquet files on S3.
     """
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
     logger = logger_manager.get_logger()
 
-    logger.info("Starting Parquet conversion from MySQL.")
-    logger.info(f"Target tables: {config.TABLE_LIST}")
+    logger.info("Starting Parquet export from MySQL.")
 
-    failed_tables = []
-    success_count = 0
-    total_tables = len(config.TABLE_LIST)
+    table_name = app_args.table
+    num_partition = app_args.num_partition
 
-    for database, table_list in config.TABLE_DICT.items():
-        try:
-            jdbc_options = get_jdbc_options(config, database)
-            partition_keys = get_partition_key_info(spark, config, database)
-
-            for table_name in table_list:
-                try:
-                    process_table_to_parquet(spark, config, table_name, jdbc_options, partition_keys)
-                    success_count += 1
-                    progress = (success_count / total_tables) * 100
-                    logger.info(f"[{progress:3.1f}%] Successfully processed {success_count}/{total_tables} tables.")
-                except Exception as e:
-                    error_info = {"table": table_name, "error": str(e)}
-                    failed_tables.append(error_info)
-                    logger.error(f"[FAIL] Error processing table {table_name}: {e}")
-
-        except Exception as db_e:
-            logger.error(f"[FAIL] Critical error for database '{database}': {db_e}")
-            failed_table_names = {d["table"] for d in failed_tables}
-            for table_name in table_list:
-                if table_name not in failed_table_names:
-                    failed_tables.append({"table": table_name, "error": f"DB-level error: {db_e}"})
-
-    # 최종 결과 요약 출력
-    logger.info("--- Parquet Conversion Process Summary ---")
-    logger.info(f"Total: {total_tables}, Success: {success_count}, Fail: {len(failed_tables)}")
-
-    if failed_tables:
-        for fail in failed_tables:
-            logger.warn(f"Failed Table: {fail['table']} | Reason: {fail['error']}")
-        raise RuntimeError(f"Process finished with {len(failed_tables)} failures.")
-
-    logger.info("Parquet conversion process finished successfully.")
+    try:
+        db_manager = MySQLManager(config)
+        process_mysql_to_parquet(spark, config, db_manager, table_name, num_partition)
+    except Exception as e:
+        logger.error(f"Failed to process table '{table_name}': {e}")
+        raise e
+    else:
+        logger.info("Parquet export process finished successfully.")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--table", type=str)
+    parser.add_argument("--num_partition", type=int)
+    args = parser.parse_args()
     settings = Settings()
-
-    os.environ["AWS_PROFILE"] = settings.AWS_PROFILE
 
     spark = (
         SparkSession.builder.appName("mysql_to_parquet")
@@ -140,7 +123,7 @@ if __name__ == "__main__":
         .config(f"spark.sql.catalog.{settings.CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
         .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
         .config(f"spark.sql.catalog.{settings.CATALOG}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.ICEBERG_S3_ROOT_PATH)
+        .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.WAREHOUSE)
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
         .config(
             "spark.hadoop.fs.s3a.aws.credentials.provider",
@@ -148,11 +131,9 @@ if __name__ == "__main__":
         )
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.parquet.datetimeRebaseModeInWrite", "CORRECTED")
-        .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED")
-        .config("spark.sql.parquet.int96RebaseModeInRead", "CORRECTED")
         .config("spark.sql.parquet.int96RebaseModeInWrite", "CORRECTED")
         .getOrCreate()
     )
 
-    main(spark, settings)
+    main(spark, settings, args)
     spark.stop()

@@ -58,7 +58,7 @@ PARTITIONED BY (
   `day` string)
 ROW FORMAT SERDE 'org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe'
 -- ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
-LOCATION 's3://hunet-di-data-lake-prod/data/log/ux_log'
+LOCATION 's3://blueriver-datalake/data/log/ux_log'
 TBLPROPERTIES (
   'parquet.mergerSchema'='true',
   'projection.enabled'='true',

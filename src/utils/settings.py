@@ -1,63 +1,64 @@
-import os
-from pathlib import Path
 from typing import Any
 
 import hvac
-import yaml
 from pydantic import BaseModel, Field, SecretStr
 from pydantic.fields import FieldInfo
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 
-class YamlConfigSettingsSource(PydanticBaseSettingsSource):
-    def __init__(self, settings_cls: type[BaseSettings], yaml_path: str | None = None):
+class VaultSettings(BaseModel):
+    url: str = Field(description="Vault URL")
+    username: str = Field(description="Vault username")
+    password: SecretStr = Field(description="Vault password")
+    secret_path: str = Field(description="Vault secret path")
+
+
+class DatabaseSettings(BaseModel):
+    type: str = Field(description="Database type (mysql, sqlserver)")
+    host: str = Field(default="", description="Database host address")
+    port: int = Field(default=3306, description="Database port number")
+    user: str = Field(default="", description="Database username")
+    password: SecretStr = Field(default=SecretStr(""), description="Database password")
+
+
+class AwsSettings(BaseModel):
+    profile: str = Field(description="AWS profile name")
+    catalog: str = Field(description="Iceberg catalog name")
+    s3_bucket: str = Field(description="S3 bucket name")
+    iceberg_path: str = Field(description="Iceberg table path")
+    parquet_path: str = Field(default="/data/raw", description="Raw Parquet storage path")
+
+
+class KafkaSettings(BaseModel):
+    bootstrap_servers: str = Field(description="Kafka bootstrap servers")
+    schema_registry: str = Field(description="Kafka schema registry URL")
+    topic_prefix: str = Field(description="Kafka topic prefix")
+    metric_namespace: str = Field(description="Kafka metric namespace")
+    max_offsets_per_trigger: int = Field(description="Maximum number of offsets to fetch per trigger")
+    starting_offsets: str = Field(description="Kafka starting offsets (earliest, latest)")
+
+
+class VaultSettingsSource(PydanticBaseSettingsSource):
+    def __init__(self, settings_cls: type[BaseSettings], vault_config: dict[str, Any]):
         super().__init__(settings_cls)
-        # 경로가 지정되지 않으면 기본값 사용
-        self.yaml_path = Path(__file__).parent.parent / "settings.yml"
-        if yaml_path:
-            self.yaml_path = Path(yaml_path)
+        self.vault_config = vault_config
 
-    def __call__(self) -> dict[str, Any]:
-        # 파일 존재 여부 확인
-        if not self.yaml_path.exists():
-            print(f"Settings file not found at {self.yaml_path}")
-            return {}
+    def __call__(self, *args, **kwargs):
+        url = self.vault_config.get("url")
+        username = self.vault_config.get("username")
+        password = self.vault_config.get("password")
+        secret_path = self.vault_config.get("secret_path")
+
+        if not all([url, username, password, secret_path]):
+            raise ValueError("from env: url, username, password, secret_path must be set")
 
         try:
-            # 파일 읽기 및 로드
-            with open(self.yaml_path, encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-                return data if data else {}
-        except yaml.YAMLError as e:
-            print(f"Failed to parse YAML file at {self.yaml_path}: {e}")
-            raise
-        except Exception as e:
-            print(f"Unexpected error loading settings from {self.yaml_path}: {e}")
-            raise
-
-    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
-        return super().get_field_value(field, field_name)
-
-
-class VaultConfigSettingsSource(PydanticBaseSettingsSource):
-    def __init__(self, settings_cls: type[BaseSettings], yaml_data: dict):
-        super().__init__(settings_cls)
-        self.yaml_data = yaml_data
-
-    def __call__(self, *args, **kwargs) -> dict[str, Any]:
-        try:
-            vault_config = self.yaml_data.get("vault", {})
-            vault_url = vault_config.get("url")
-            vault_username = vault_config.get("username")
-            vault_password = vault_config.get("password")
-            vault_secret_path = vault_config.get("secret_path")
-
-            client = hvac.Client(url=vault_url)
-            client.auth.userpass.login(username=vault_username, password=vault_password)
-            response = client.read(vault_secret_path)
+            client = hvac.Client(url=url)
+            client.auth.userpass.login(username=username, password=password)
+            response = client.read(path=secret_path)
 
             if not isinstance(response, dict) or "data" not in response or "data" not in response["data"]:
-                raise ValueError(f"Could not find data at Vault path: '{vault_secret_path}'")
+                raise ValueError(f"Could not find data at Vault path: '{secret_path}'")
 
             secret = response["data"]["data"]
             return {
@@ -76,57 +77,14 @@ class VaultConfigSettingsSource(PydanticBaseSettingsSource):
         return super().get_field_value(field, field_name)
 
 
-class VaultSettings(BaseModel):
-    # 민감 정보 노출 방지를 위해 SecretStr 사용
-    url: str
-    username: str
-    password: SecretStr
-    secret_path: str
-
-
-class DatabaseSettings(BaseModel):
-    type: str = Field(default="mysql", description="Database type (mysql, sqlserver)")
-    host: str = Field(default="localhost", description="Database host address")
-    port: int = Field(default=3306, description="Database port number")
-    user: str = Field(default="root", description="Database username")
-    password: SecretStr = Field(default="", description="Database password")
-
-
-class AwsSettings(BaseModel):
-    profile: str
-
-
-class IcebergSettings(BaseModel):
-    catalog: str
-    s3_root_path: str
-    parquet_s3_root_path: str
-
-
-class KafkaSettings(BaseModel):
-    bootstrap_servers: str
-    schema_registry: str
-    topic_prefix: str
-    metric_namespace: str
-    max_offsets_per_trigger: int = Field(default=100000)
-    starting_offsets: str
-
-
-class JobSettings(BaseModel):
-    num_partitions: int = Field(default=20)
-    tier: str = Field(default="batch", description="Job tier: hot, cold, or batch (legacy)")
-    tables: list[str]
-    schemas: list[str]
-
-
 class Settings(BaseSettings):
-    __config_path__: str | None = os.getenv("CONFIG_PATH", None)
-
+    model_config = SettingsConfigDict(
+        extra="ignore", env_file=".env", env_file_encoding="utf-8", env_nested_delimiter="__"
+    )
     vault: VaultSettings
-    database: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    database: DatabaseSettings
     aws: AwsSettings
-    iceberg: IcebergSettings
-    kafka: KafkaSettings
-    job: JobSettings
+    kafka: KafkaSettings | None = None
 
     @classmethod
     def settings_customise_sources(
@@ -137,101 +95,31 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # 1. YAML 소스 인스턴스 생성 및 데이터 미리 로드
-        yaml_settings = YamlConfigSettingsSource(settings_cls, cls.__config_path__)
-        yaml_data = yaml_settings()  # YAML 파일 읽기 실행
-
-        # 2. 로드된 데이터를 Vault 소스에 전달
-        vault_settings = VaultConfigSettingsSource(settings_cls, yaml_data)
+        env_data = env_settings()
+        env_data.update(dotenv_settings())
+        vault_config = env_data.get("vault", {})
+        vault_settings = VaultSettingsSource(settings_cls, vault_config)
         return (
             init_settings,
-            yaml_settings,
-            vault_settings,
             env_settings,
             dotenv_settings,
+            vault_settings,
             file_secret_settings,
         )
 
     @property
-    def DB_TYPE(self) -> str:
-        return self.database.type
+    def CATALOG(self):
+        return self.aws.catalog
 
     @property
-    def DB_HOST(self) -> str:
-        return self.database.host
+    def WAREHOUSE(self):
+        return "s3a://" + self.aws.s3_bucket + self.aws.iceberg_path
 
     @property
-    def DB_PORT(self) -> int:
-        return self.database.port
-
-    @property
-    def DB_USER(self) -> str:
-        return self.database.user
-
-    @property
-    def DB_PASSWORD(self) -> str:
-        return self.database.password.get_secret_value()
-
-    @property
-    def SCHEMA_LIST(self) -> list[str]:
-        return self.job.schemas
-
-    @property
-    def TABLE_LIST(self) -> list[str]:
-        return self.job.tables
-
-    @property
-    def TABLE_STR(self) -> str:
-        if not self.job.tables:
-            return "('')"
-        # 테이블 목록을 SQL IN 절에 사용할 수 있는 문자열로 변환
-        return f"({', '.join([f'{t!r}' for t in self.job.tables])})"
-
-    @property
-    def TABLE_DICT(self) -> dict[str, list[str]]:
-        """
-        테이블 목록을 데이터베이스별로 그룹화하여 반환합니다.
-        MSSQL의 경우 'database.dbo.table' 형식을 가정합니다.
-        MySQL의 경우 'database.table' 형식을 가정합니다.
-        """
-        table_dict: dict = {}
-        for table in self.job.tables:
-            parts = table.split(".")
-            if len(parts) >= 2:
-                db_name = parts[0]
-                if db_name not in table_dict:
-                    table_dict[db_name] = []
-                table_dict[db_name].append(table)
-        return table_dict
-
-    @property
-    def CATALOG(self) -> str:
-        return self.iceberg.catalog
-
-    @property
-    def ICEBERG_S3_ROOT_PATH(self) -> str:
-        return self.iceberg.s3_root_path
-
-    @property
-    def PARQUET_S3_ROOT_PATH(self) -> str:
-        return self.iceberg.parquet_s3_root_path
-
-    @property
-    def NUM_PARTITIONS(self) -> int:
-        return self.job.num_partitions
-
-    @property
-    def AWS_PROFILE(self) -> str:
-        return self.aws.profile
-
-    def get_table_str_for_db(self, database: str) -> str:
-        """특정 데이터베이스에 대한 테이블 목록을 SQL IN 절 형식의 문자열로 반환합니다."""
-        table_list = self.TABLE_DICT.get(database, [])
-        if not table_list:
-            return "('')"
-        return f"{tuple(map(str.strip, table_list))}".replace(",)", ")")
+    def PARQUET_WAREHOUSE(self):
+        return "s3a://" + self.aws.s3_bucket + self.aws.parquet_path
 
 
 # if __name__ == "__main__":
-#     settings = Settings()
+#     settings = Settings(_env_file="../../tests/test.env")
 #     print(settings)

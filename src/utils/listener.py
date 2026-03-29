@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from pyspark.sql import SparkSession
 from pyspark.sql.streaming.listener import (
     QueryIdleEvent,
     QueryProgressEvent,
@@ -6,41 +9,60 @@ from pyspark.sql.streaming.listener import (
     StreamingQueryListener,
 )
 
+from utils.spark_logging import SparkLoggerManager
 
-class CustomStreamingListener(StreamingQueryListener):
+
+class BatchProgressListener(StreamingQueryListener):
+    """마이크로 배치 진행 상황을 Log4j로 기록하는 스트리밍 리스너.
+
+    signal_spark와 signal_path가 설정되면, 매 배치/유휴 시점마다
+    S3 시그널 파일을 확인하여 스트리밍 쿼리를 graceful shutdown 합니다.
+    """
+
+    def __init__(
+        self,
+        signal_spark: SparkSession | None = None,
+        signal_path: str | None = None,
+    ):
+        super().__init__()
+        self._signal_spark = signal_spark
+        self._signal_path = signal_path
+
+    def _check_signal(self) -> None:
+        if not self._signal_spark or not self._signal_path:
+            return
+        from utils.signal import check_stop_signal
+
+        if check_stop_signal(self._signal_spark, self._signal_path):
+            logger = SparkLoggerManager().get_logger()
+            if logger:
+                logger.warn(f"[Stream] Stop signal detected at {self._signal_path}. Stopping active queries.")
+            for q in self._signal_spark.streams.active:
+                q.stop()
+
     def onQueryStarted(self, event: QueryStartedEvent) -> None:
-        # 쿼리 시작 시 실행 (Logging in English as requested)
-        print("--- Query Started ---")
-        print(f"ID: {event.id}")
-        print(f"Name: {event.name}")
-        print(f"Run ID: {event.runId}")
+        logger = SparkLoggerManager().get_logger()
+        if logger:
+            logger.info(f"[Stream] Started: {event.name} (runId={event.runId})")
 
     def onQueryProgress(self, event: QueryProgressEvent) -> None:
-        # 매 배치가 완료될 때마다 메트릭 출력
-        progress = event.progress
-        num_rows = progress.numInputRows
-        input_rate = progress.inputRowsPerSecond
-
-        print("--- Query Progress ---")
-        print(f"Query Name: {progress.name}")
-        print(f"Processed Rows: {num_rows}")
-        print(f"Input Rate: {input_rate} rows/sec")
+        logger = SparkLoggerManager().get_logger()
+        if not logger or not hasattr(event, "progress") or event.progress is None:
+            return
+        p = event.progress
+        logger.info(
+            f"[Stream] {p.name} batch={p.batchId} | rows={p.numInputRows} | in={p.inputRowsPerSecond:.1f}/s out={p.processedRowsPerSecond:.1f}/s"
+        )
+        self._check_signal()
 
     def onQueryIdle(self, event: QueryIdleEvent) -> None:
-        # 데이터가 없어 유휴 상태일 때 (Spark 3.5.0+)
-        print("--- Query Idle ---")
-        print(f"Query {event.id} is waiting for new data...")
+        self._check_signal()
 
     def onQueryTerminated(self, event: QueryTerminatedEvent) -> None:
-        # 쿼리 종료 및 에러 처리
-        print("--- Query Terminated ---")
+        logger = SparkLoggerManager().get_logger()
+        if not logger:
+            return
         if event.exception:
-            # 에러 발생 시 로그 출력
-            print(f"Query terminated with exception: {event.exception}")
+            logger.error(f"[Stream] Terminated with error: {event.exception}")
         else:
-            print("Query terminated gracefully.")
-
-
-# 리스너 등록 방법
-# listener = CustomStreamingListener()
-# spark.streams.addListener(listener)
+            logger.info(f"[Stream] Terminated gracefully (id={event.id})")
