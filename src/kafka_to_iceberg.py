@@ -8,6 +8,7 @@ S3 시그널 파일로 중단:
   s3a://{bucket}/spark/signal/{dag_id} 파일이 존재하면 남은 토픽 처리를 건너뛴다.
 """
 
+import base64
 import json
 import sys
 import threading
@@ -477,7 +478,9 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
 # ---------------------------------------------------------------------------
 
 
-def run_topic_stream(spark: SparkSession, settings: Settings, topic: str, dag_id: str) -> None:
+def run_topic_stream(
+    spark: SparkSession, settings: Settings, topic: str, dag_id: str, starting_offsets: str | None = None
+) -> None:
     logger = SparkLoggerManager().get_logger()
 
     if not settings.kafka:
@@ -499,7 +502,12 @@ def run_topic_stream(spark: SparkSession, settings: Settings, topic: str, dag_id
         .option("kafka.bootstrap.servers", settings.kafka.bootstrap_servers)
         .option("subscribe", topic)
         .option("maxOffsetsPerTrigger", settings.kafka.max_offsets_per_trigger)
-        .option("startingOffsets", settings.kafka.starting_offsets)
+        .option(
+            "startingOffsets",
+            json.dumps({topic: json.loads(str(starting_offsets))})
+            if starting_offsets
+            else settings.kafka.starting_offsets,
+        )
         .option("failOnDataLoss", "false")
         .load()
     )
@@ -531,10 +539,15 @@ if __name__ == "__main__":
     )
     parser.add_argument("--topics", type=str, required=True)
     parser.add_argument("--concurrency", type=int, default=3, help="동시 처리 토픽 수 (기본값: 3)")
+    parser.add_argument("--starting-offsets-map", type=str, default=None, help="토픽별 시작 offset JSON (v1 전환용)")
     args = parser.parse_args()
     settings = Settings()
     dag_id = args.dag_id
 
+    if args.starting_offsets_map:
+        offsets_map = json.loads(base64.b64decode(args.starting_offsets_map).decode())
+    else:
+        offsets_map = {}
     topics = args.topics.split(",")
     spark = (
         SparkSession.builder.appName("kafka_to_iceberg")
@@ -593,7 +606,7 @@ if __name__ == "__main__":
                 t_spark.sparkContext.setLocalProperty("spark.scheduler.pool", t_topic)
                 t_spark.sparkContext.setLocalProperty("datahub.task.id", t_topic)
                 t_spark.sparkContext.setJobGroup(t_topic, f"Processing {t_topic}")
-                run_topic_stream(t_spark, t_settings, t_topic, dag_id)
+                run_topic_stream(t_spark, t_settings, t_topic, dag_id, offsets_map.get(t_topic))
             except Exception as e:
                 SparkLoggerManager().get_logger().error(f"Failed to process topic: {t_topic}, error: {e}")
                 exceptions.append(e)
