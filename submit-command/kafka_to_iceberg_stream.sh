@@ -4,9 +4,9 @@ set -euo pipefail
 spark-submit \
   --master yarn \
   --deploy-mode cluster \
-  --name glue_kafka_to_s3 \
+  --name glue_kafka_to_iceberg_stream \
   --py-files utils.zip \
-  --files kafka_to_s3.env#.env \
+  --files kafka_to_iceberg_stream.env#.env \
   --conf spark.yarn.maxAppAttempts=1 \
   --conf spark.yarn.appMasterEnv.AWS_PROFILE=default \
   --conf spark.executorEnv.AWS_PROFILE=default \
@@ -15,8 +15,9 @@ spark-submit \
   --conf spark.executor.cores=2 \
   --conf spark.executor.memory=2G \
   --conf spark.executor.instances=2 \
-  kafka_to_s3.py \
-  --dag-id glue_kafka_to_s3 \
+  kafka_to_iceberg_stream.py \
+  --dag-id glue_kafka_to_iceberg_stream \
   --topics "local.store.tb_lower,local.store.TB_UPPER,local.store.TB_COMPOSITE_KEY" \
-  --output-path "s3a://blueriver-datalake/data/raw/kafka" \
-  --partition-by "year,month,day"
+  --concurrency 3 \
+  --round-interval 300 \
+  --scheduled-at "2026-03-31T00:00:00+00:00"

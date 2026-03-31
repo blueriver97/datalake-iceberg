@@ -29,7 +29,7 @@ env/<task>.env  →  --files <task>.env#.env  →  YARN 드라이버 working dir
 
 - `--files <task>.env#.env`: YARN이 파일을 드라이버에 `.env`로 rename하여 배포
 - `AWS_PROFILE`만 `spark.yarn.appMasterEnv` / `spark.executorEnv`로 직접 전달 (executor에서도 필요)
-- 나머지 앱 설정 (VAULT**, DATABASE**, AWS**, KAFKA**): .env 파일로 전달
+- 나머지 앱 설정 (VAULT**, DATABASE**, STORAGE**, KAFKA**): .env 파일로 전달
 
 ### 실행 방법
 
@@ -61,18 +61,18 @@ VAULT__SECRET_PATH=secret/data/user/database/local-mysql
 
 DATABASE__TYPE=mysql
 
-AWS__PROFILE=default
-AWS__CATALOG=awsdatacatalog
-AWS__S3_BUCKET=your-bucket
-AWS__ICEBERG_PATH=/data/iceberg
+STORAGE__PROFILE=default
+STORAGE__CATALOG=awsdatacatalog
+STORAGE__BUCKET=your-bucket
+STORAGE__DATA_PATH=/iceberg
 ```
 
 #### Parquet 적재 (mysql_to_parquet, mssql_to_parquet, parquet_to_iceberg)
 
-위 항목에 추가:
+위 항목과 동일하되, `DATA_PATH`를 Parquet 저장 경로로 설정:
 
 ```bash
-AWS__PARQUET_PATH=/data/parquet
+STORAGE__DATA_PATH=/data/raw
 ```
 
 #### Kafka 스트리밍 (kafka_to_iceberg, kafka_to_s3)
@@ -104,7 +104,7 @@ PYSPARK_PYTHON=python3
 Settings
 ├── VaultSettings (url, username, password, secret_path)
 ├── DatabaseSettings (type, host, port, user, password) ← Vault에서 주입
-├── AwsSettings (profile, catalog, s3_bucket, iceberg_path, parquet_path)
+├── StorageSettings (profile, catalog, bucket, data_path)
 └── KafkaSettings (bootstrap_servers, schema_registry, ...) [Optional]
 ```
 

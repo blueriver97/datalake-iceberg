@@ -21,12 +21,11 @@ class DatabaseSettings(BaseModel):
     password: SecretStr = Field(default=SecretStr(""), description="Database password")
 
 
-class AwsSettings(BaseModel):
-    profile: str = Field(description="AWS profile name")
+class StorageSettings(BaseModel):
+    profile: str = Field(description="Credential profile name")
     catalog: str = Field(description="Iceberg catalog name")
-    s3_bucket: str = Field(description="S3 bucket name")
-    iceberg_path: str = Field(description="Iceberg table path")
-    parquet_path: str = Field(default="/data/raw", description="Raw Parquet storage path")
+    bucket: str = Field(description="Object storage bucket name")
+    data_path: str = Field(description="Data storage base path")
 
 
 class KafkaSettings(BaseModel):
@@ -83,7 +82,7 @@ class Settings(BaseSettings):
     )
     vault: VaultSettings
     database: DatabaseSettings
-    aws: AwsSettings
+    storage: StorageSettings
     kafka: KafkaSettings | None = None
 
     @classmethod
@@ -109,15 +108,11 @@ class Settings(BaseSettings):
 
     @property
     def CATALOG(self):
-        return self.aws.catalog
+        return self.storage.catalog
 
     @property
     def WAREHOUSE(self):
-        return "s3a://" + self.aws.s3_bucket + self.aws.iceberg_path
-
-    @property
-    def PARQUET_WAREHOUSE(self):
-        return "s3a://" + self.aws.s3_bucket + self.aws.parquet_path
+        return "s3a://" + self.storage.bucket + self.storage.data_path
 
 
 # if __name__ == "__main__":

@@ -47,7 +47,7 @@ def process_mssql_to_parquet(
     else:
         raise ValueError(f"Invalid table name format: '{table_name}'. Expected 'db.schema.table'.")
 
-    output_path = f"{config.PARQUET_WAREHOUSE}/{schema}/{table}"
+    output_path = f"{config.WAREHOUSE}/{schema}/{table}"
 
     partition_column = db_manager.get_partition_key(spark, table_name)
     jdbc_options = db_manager.get_jdbc_options(database=schema)

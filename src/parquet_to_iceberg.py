@@ -52,7 +52,7 @@ def process_parquet_to_iceberg(
     bronze_schema = f"{schema.lower()}_bronze"
     target_table = table.lower()
     full_table_name = f"{config.CATALOG}.{bronze_schema}.{target_table}"
-    parquet_path = f"{config.PARQUET_WAREHOUSE}/{schema}/{table}"
+    parquet_path = f"{config.WAREHOUSE}/{schema}/{table}"
 
     pk_cols = db_manager.get_primary_key(spark, table_name)
 

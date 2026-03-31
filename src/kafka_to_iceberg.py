@@ -493,7 +493,7 @@ def run_topic_stream(
     iceberg_schema = f"{schema.lower()}_bronze"
     iceberg_table = table.lower()
 
-    checkpoint_path = f"s3a://{settings.aws.s3_bucket}/iceberg/checkpoint/{dag_id}/{topic}"
+    checkpoint_path = f"s3a://{settings.storage.bucket}/iceberg/checkpoint/{dag_id}/{topic}"
     logger.info(f"Starting stream for topic: {topic}, checkpoint: {checkpoint_path}")
 
     ctx = PipelineContext(
@@ -613,7 +613,7 @@ if __name__ == "__main__":
     logger = logger_manager.get_logger()
 
     # S3 시그널 파일 확인 (s3a://{bucket}/spark/signal/{dag_id})
-    stop_signal_path = build_signal_path(settings.aws.s3_bucket, dag_id)
+    stop_signal_path = build_signal_path(settings.storage.bucket, dag_id)
 
     # 리스너 등록 (마이크로 배치별 진행 로깅 + 시그널 감지)
     spark.streams.addListener(BatchProgressListener(signal_spark=spark, signal_path=stop_signal_path))
