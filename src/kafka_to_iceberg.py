@@ -486,7 +486,11 @@ def run_topic_stream(
     if not settings.kafka:
         raise ValueError("Kafka configuration is missing.")
 
-    checkpoint_path = f"{settings.WAREHOUSE}/checkpoints/kafka_to_iceberg/{topic}"
+    _prefix, schema, table = topic.split(".")
+    iceberg_schema = f"{schema.lower()}_bronze"
+    iceberg_table = table.lower()
+
+    checkpoint_path = f"s3a://{settings.aws.s3_bucket}/iceberg/checkpoint/{dag_id}/{topic}"
     logger.info(f"Starting stream for topic: {topic}, checkpoint: {checkpoint_path}")
 
     ctx = PipelineContext(
@@ -512,13 +516,20 @@ def run_topic_stream(
         .load()
     )
 
+    processed = False
+
+    def _foreach_batch(batch_df: DataFrame, batch_id: int) -> None:
+        nonlocal processed
+        process_batch(batch_df, batch_id, ctx)
+        processed = True
+
     query = (
         kafka_df.withColumn("key_schema_id", F.expr("byte_to_int(substring(key, 2, 4))"))
         .withColumn("key", F.expr("substring(key, 6, length(key)-5)"))
         .withColumn("value_schema_id", F.expr("byte_to_int(substring(value, 2, 4))"))
         .withColumn("value", F.expr("substring(value, 6, length(value)-5)"))
         .selectExpr("key_schema_id", "value_schema_id", "key", "value", "topic", "offset", "timestamp")
-        .writeStream.foreachBatch(lambda batch_df, batch_id: process_batch(batch_df, batch_id, ctx))
+        .writeStream.foreachBatch(_foreach_batch)
         .option("checkpointLocation", checkpoint_path)
         .queryName(topic)
         .outputMode("append")
@@ -526,6 +537,19 @@ def run_topic_stream(
         .start()
     )
     query.awaitTermination()
+
+    # availableNow=True에서 새 메시지가 없으면 foreachBatch가 호출되지 않음.
+    # 파이프라인 활성 상태 추적을 위해 heartbeat watermark를 기록한다.
+    if not processed:
+        append_watermark(
+            spark,
+            settings,
+            dag_id,
+            iceberg_schema,
+            iceberg_table,
+            event_count=0,
+            max_event_ts=None,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +565,7 @@ if __name__ == "__main__":
     parser.add_argument("--concurrency", type=int, default=3, help="동시 처리 토픽 수 (기본값: 3)")
     parser.add_argument("--starting-offsets-map", type=str, default=None, help="토픽별 시작 offset JSON (v1 전환용)")
     args = parser.parse_args()
+
     settings = Settings()
     dag_id = args.dag_id
 
@@ -549,6 +574,7 @@ if __name__ == "__main__":
     else:
         offsets_map = {}
     topics = args.topics.split(",")
+
     spark = (
         SparkSession.builder.appName("kafka_to_iceberg")
         .config("spark.sql.defaultCatalog", settings.CATALOG)
@@ -587,6 +613,7 @@ if __name__ == "__main__":
 
     # CDC Watermark 테이블 초기화
     ensure_watermark_table(spark, settings)
+
     if check_stop_signal(spark, stop_signal_path):
         logger.warn(f"Stop signal detected at {stop_signal_path}. Exiting.")
         spark.stop()
