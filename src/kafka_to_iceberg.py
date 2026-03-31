@@ -49,13 +49,14 @@ def ensure_watermark_table(spark: SparkSession, config: Settings) -> None:
                 dag_id                  STRING,
                 bronze_schema           STRING,
                 table_name              STRING,
-                event_count             BIGINT,
+                scheduled_at            TIMESTAMP,
                 max_event_ts            TIMESTAMP,
                 processed_at            TIMESTAMP,
                 min_offset              BIGINT,
                 max_offset              BIGINT,
-                batch_id                BIGINT,
-                processing_duration_sec DOUBLE
+                event_count             BIGINT,
+                processing_duration_sec DOUBLE,
+                batch_id                BIGINT
             ) USING iceberg
             LOCATION '{config.WAREHOUSE}/ops_bronze/cdc_watermark'
             TBLPROPERTIES (
@@ -76,6 +77,7 @@ def _build_watermark_values(
     max_offset: int | None,
     batch_id: int | None,
     processing_duration_sec: float | None,
+    scheduled_at: str | None = None,
 ) -> str:
     """watermark INSERT/MERGE에 사용할 SELECT 절을 생성한다."""
     max_event_ts_expr = f"TIMESTAMP '{max_event_ts}'" if max_event_ts else "CAST(NULL AS TIMESTAMP)"
@@ -83,18 +85,20 @@ def _build_watermark_values(
     max_offset_expr = str(max_offset) if max_offset is not None else "CAST(NULL AS BIGINT)"
     batch_id_expr = str(batch_id) if batch_id is not None else "CAST(NULL AS BIGINT)"
     duration_expr = str(processing_duration_sec) if processing_duration_sec is not None else "CAST(NULL AS DOUBLE)"
+    scheduled_at_expr = f"TIMESTAMP '{scheduled_at}'" if scheduled_at else "CAST(NULL AS TIMESTAMP)"
     return f"""
         SELECT
             '{dag_id}' AS dag_id,
             '{bronze_schema}' AS bronze_schema,
             '{table_name}' AS table_name,
-            {event_count} AS event_count,
+            {scheduled_at_expr} AS scheduled_at,
             {max_event_ts_expr} AS max_event_ts,
             current_timestamp() AS processed_at,
             {min_offset_expr} AS min_offset,
             {max_offset_expr} AS max_offset,
-            {batch_id_expr} AS batch_id,
-            {duration_expr} AS processing_duration_sec
+            {event_count} AS event_count,
+            {duration_expr} AS processing_duration_sec,
+            {batch_id_expr} AS batch_id
     """
 
 
@@ -124,6 +128,7 @@ def append_watermark(
     max_offset: int | None = None,
     batch_id: int | None = None,
     processing_duration_sec: float | None = None,
+    scheduled_at: str | None = None,
 ) -> None:
     """cdc_watermark 테이블에 CDC 처리 기록을 append한다.
 
@@ -141,6 +146,7 @@ def append_watermark(
         max_offset,
         batch_id,
         processing_duration_sec,
+        scheduled_at,
     )
     spark.sql(f"INSERT INTO {config.CATALOG}.ops_bronze.cdc_watermark {values}")
     _log_watermark(
@@ -160,6 +166,7 @@ def merge_watermark(
     max_offset: int | None = None,
     batch_id: int | None = None,
     processing_duration_sec: float | None = None,
+    scheduled_at: str | None = None,
 ) -> None:
     """cdc_watermark 테이블에 CDC 처리 기록을 upsert한다.
 
@@ -177,6 +184,7 @@ def merge_watermark(
         max_offset,
         batch_id,
         processing_duration_sec,
+        scheduled_at,
     )
     spark.sql(f"""
         MERGE INTO {full_table} t
@@ -185,13 +193,14 @@ def merge_watermark(
            AND t.bronze_schema = s.bronze_schema
            AND t.table_name = s.table_name
         WHEN MATCHED THEN UPDATE SET
-            t.event_count = s.event_count,
+            t.scheduled_at = s.scheduled_at,
             t.max_event_ts = s.max_event_ts,
             t.processed_at = s.processed_at,
             t.min_offset = s.min_offset,
             t.max_offset = s.max_offset,
-            t.batch_id = s.batch_id,
-            t.processing_duration_sec = s.processing_duration_sec
+            t.event_count = s.event_count,
+            t.processing_duration_sec = s.processing_duration_sec,
+            t.batch_id = s.batch_id
         WHEN NOT MATCHED THEN INSERT *
     """)
     _log_watermark(
@@ -310,6 +319,7 @@ class PipelineContext:
     schema_registry_client: SchemaRegistryClient
     topic: str
     dag_id: str
+    scheduled_at: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -328,19 +338,6 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
     full_table_name = f"{ctx.config.CATALOG}.{iceberg_schema}.{iceberg_table}"
 
     logger.info(f"<batch-{batch_id}> Processing {ctx.topic}")
-
-    if batch_df.isEmpty():
-        append_watermark(
-            spark,
-            ctx.config,
-            ctx.dag_id,
-            iceberg_schema,
-            iceberg_table,
-            event_count=0,
-            max_event_ts=None,
-            batch_id=batch_id,
-        )
-        return
 
     batch_df.persist(StorageLevel.MEMORY_AND_DISK)
 
@@ -470,6 +467,7 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
         max_offset=stats["max_offset"],
         batch_id=batch_id,
         processing_duration_sec=table_duration,
+        scheduled_at=ctx.scheduled_at,
     )
 
 
@@ -479,7 +477,12 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
 
 
 def run_topic_stream(
-    spark: SparkSession, settings: Settings, topic: str, dag_id: str, starting_offsets: str | None = None
+    spark: SparkSession,
+    settings: Settings,
+    topic: str,
+    dag_id: str,
+    starting_offsets: str | None = None,
+    scheduled_at: str | None = None,
 ) -> None:
     logger = SparkLoggerManager().get_logger()
 
@@ -499,6 +502,7 @@ def run_topic_stream(
         schema_registry_client=SchemaRegistryClient({"url": settings.kafka.schema_registry}),
         topic=topic,
         dag_id=dag_id,
+        scheduled_at=scheduled_at,
     )
 
     kafka_df = (
@@ -508,9 +512,7 @@ def run_topic_stream(
         .option("maxOffsetsPerTrigger", settings.kafka.max_offsets_per_trigger)
         .option(
             "startingOffsets",
-            json.dumps({topic: json.loads(str(starting_offsets))})
-            if starting_offsets
-            else settings.kafka.starting_offsets,
+            json.dumps({topic: json.loads(starting_offsets)}) if starting_offsets else settings.kafka.starting_offsets,
         )
         .option("failOnDataLoss", "false")
         .load()
@@ -519,6 +521,7 @@ def run_topic_stream(
     processed = False
 
     def _foreach_batch(batch_df: DataFrame, batch_id: int) -> None:
+        """클로저: 외부 스코프의 ctx를 캡처하여 배치 처리에 전달한다."""
         nonlocal processed
         process_batch(batch_df, batch_id, ctx)
         processed = True
@@ -549,6 +552,7 @@ def run_topic_stream(
             iceberg_table,
             event_count=0,
             max_event_ts=None,
+            scheduled_at=scheduled_at,
         )
 
 
@@ -564,11 +568,17 @@ if __name__ == "__main__":
     parser.add_argument("--topics", type=str, required=True)
     parser.add_argument("--concurrency", type=int, default=3, help="동시 처리 토픽 수 (기본값: 3)")
     parser.add_argument("--starting-offsets-map", type=str, default=None, help="토픽별 시작 offset JSON (v1 전환용)")
+    parser.add_argument("--scheduled-at", type=str, default=None, help="Airflow logical_date (배치 식별용)")
     args = parser.parse_args()
 
     settings = Settings()
     dag_id = args.dag_id
 
+    # starting-offsets-map 디코딩 예시:
+    #   args.starting_offsets_map (base64): "eyJwcmVmaXguc2NoZW1hLnRhYmxlMSI6IHsiMCI6IDEwMH19"
+    #   base64.b64decode(...)    (bytes):  b'{"prefix.schema.table1": {"0": 100}}'
+    #   .decode()                (str):    '{"prefix.schema.table1": {"0": 100}}'
+    #   json.loads(...)          (dict):   {"prefix.schema.table1": {"0": 100}}
     if args.starting_offsets_map:
         offsets_map = json.loads(base64.b64decode(args.starting_offsets_map).decode())
     else:
@@ -630,10 +640,11 @@ if __name__ == "__main__":
                     SparkLoggerManager().get_logger().warn(f"Stop signal detected. Skipping topic: {t_topic}")
                     return
 
+                # FAIR 스케줄러에서 토픽별 독립 풀을 할당하여 스레드 간 리소스 경합을 방지한다.
                 t_spark.sparkContext.setLocalProperty("spark.scheduler.pool", t_topic)
                 t_spark.sparkContext.setLocalProperty("datahub.task.id", t_topic)
                 t_spark.sparkContext.setJobGroup(t_topic, f"Processing {t_topic}")
-                run_topic_stream(t_spark, t_settings, t_topic, dag_id, offsets_map.get(t_topic))
+                run_topic_stream(t_spark, t_settings, t_topic, dag_id, offsets_map.get(t_topic), args.scheduled_at)
             except Exception as e:
                 SparkLoggerManager().get_logger().error(f"Failed to process topic: {t_topic}, error: {e}")
                 exceptions.append(e)
