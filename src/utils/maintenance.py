@@ -9,7 +9,7 @@ Watermark 테이블 관리(생성, 기록, 조회, 정리)는 utils/watermark.py
 
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from pyspark.sql import SparkSession
 
@@ -257,7 +257,7 @@ def run_orphan_cleanup(
     logger = SparkLoggerManager().get_logger()
     _prefix, bronze_schema, table_name = full_table_name.split(".")
 
-    older_than_ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    older_than_ts = (datetime.now(UTC) - timedelta(days=orphan_older_than_days)).strftime("%Y-%m-%d %H:%M:+%S")
 
     wall_start = datetime.now(UTC)
     mono_start = time.monotonic()
@@ -266,7 +266,7 @@ def run_orphan_cleanup(
         spark.sql(f"""
             CALL {catalog}.system.remove_orphan_files(
                 table => '{full_table_name}',
-                older_than => TIMESTAMP '{older_than_ts}' - INTERVAL {orphan_older_than_days} DAYS
+                older_than => TIMESTAMP '{older_than_ts}'
             )
         """)
         duration = time.monotonic() - mono_start
