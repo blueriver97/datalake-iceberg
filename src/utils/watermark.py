@@ -398,25 +398,51 @@ def should_run(last_completed: datetime | None, interval_seconds: int) -> bool:
 def purge_watermarks(spark: SparkSession, catalog: str, retention_days: int = 14) -> None:
     """cdc_watermark와 maintenance_watermark에서 retention_days 이전 레코드를 삭제한다.
 
-    각 테이블의 시간 컬럼이 다르므로 개별 쿼리를 사용한다:
-    - cdc_watermark: processed_at 기준
-    - maintenance_watermark: started_at 기준
+    키별 최신 1건은 retention 기간과 무관하게 항상 보존한다.
+    - cdc_watermark: (dag_id, bronze_schema, table_name) 기준, processed_at 최신 보존
+    - maintenance_watermark: (dag_id, bronze_schema, table_name, procedure_type) 기준, started_at 최신 보존
     """
     logger = SparkLoggerManager().get_logger()
 
-    purge_targets = [
-        (f"{catalog}.ops_bronze.cdc_watermark", "processed_at"),
-        (f"{catalog}.ops_bronze.maintenance_watermark", "started_at"),
-    ]
-    for table, time_column in purge_targets:
-        try:
-            if not spark.catalog.tableExists(table):
-                continue
-            logger.info(f"Purging records older than {retention_days} days from {table} (column={time_column})")
-            spark.sql(f"""
-                DELETE FROM {table}
-                WHERE {time_column} < current_timestamp() - INTERVAL {retention_days} DAYS
-            """)
-            logger.info(f"Purge completed: {table}")
-        except Exception as e:
-            logger.warn(f"Purge failed for {table}: {e}")
+    _purge_cdc_watermark(spark, catalog, retention_days, logger)
+    _purge_maintenance_watermark(spark, catalog, retention_days, logger)
+
+
+def _purge_cdc_watermark(spark: SparkSession, catalog: str, retention_days: int, logger) -> None:
+    table = f"{catalog}.ops_bronze.cdc_watermark"
+    try:
+        if not spark.catalog.tableExists(table):
+            return
+        logger.info(f"Purging {table} (retention={retention_days}d, keeping latest per key)")
+        spark.sql(f"""
+            DELETE FROM {table}
+            WHERE processed_at < current_timestamp() - INTERVAL {retention_days} DAYS
+              AND (dag_id, bronze_schema, table_name, processed_at) NOT IN (
+                  SELECT dag_id, bronze_schema, table_name, MAX(processed_at)
+                  FROM {table}
+                  GROUP BY dag_id, bronze_schema, table_name
+              )
+        """)
+        logger.info(f"Purge completed: {table}")
+    except Exception as e:
+        logger.warn(f"Purge failed for {table}: {e}")
+
+
+def _purge_maintenance_watermark(spark: SparkSession, catalog: str, retention_days: int, logger) -> None:
+    table = f"{catalog}.ops_bronze.maintenance_watermark"
+    try:
+        if not spark.catalog.tableExists(table):
+            return
+        logger.info(f"Purging {table} (retention={retention_days}d, keeping latest per key)")
+        spark.sql(f"""
+            DELETE FROM {table}
+            WHERE started_at < current_timestamp() - INTERVAL {retention_days} DAYS
+              AND (dag_id, bronze_schema, table_name, procedure_type, started_at) NOT IN (
+                  SELECT dag_id, bronze_schema, table_name, procedure_type, MAX(started_at)
+                  FROM {table}
+                  GROUP BY dag_id, bronze_schema, table_name, procedure_type
+              )
+        """)
+        logger.info(f"Purge completed: {table}")
+    except Exception as e:
+        logger.warn(f"Purge failed for {table}: {e}")
