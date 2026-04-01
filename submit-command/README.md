@@ -6,6 +6,7 @@
 submit-command/
 ├── env/                            # 앱별 환경변수 (.env)
 │   ├── kafka_to_iceberg.env
+│   ├── kafka_to_iceberg_stream.env
 │   ├── kafka_to_s3.env
 │   ├── mysql_to_iceberg.env
 │   ├── sqlserver_to_iceberg.env
@@ -13,11 +14,10 @@ submit-command/
 │   ├── mssql_to_parquet.env
 │   ├── parquet_to_iceberg.env
 │   ├── schema_validate.env
-│   ├── iceberg_maintenance.env
-│   └── watermark_maintenance.env
+│   └── iceberg_maintenance.env
 ├── kafka_to_iceberg.sh
 ├── ...
-└── watermark_maintenance.sh
+└── iceberg_maintenance.sh
 ```
 
 ### 환경변수 전달 방식 (YARN cluster mode)
@@ -75,7 +75,7 @@ STORAGE__DATA_PATH=/iceberg
 STORAGE__DATA_PATH=/data/raw
 ```
 
-#### Kafka 스트리밍 (kafka_to_iceberg, kafka_to_s3)
+#### Kafka 스트리밍 (kafka_to_iceberg, kafka_to_iceberg_stream, kafka_to_s3)
 
 위 항목에 추가:
 
@@ -88,14 +88,20 @@ KAFKA__MAX_OFFSETS_PER_TRIGGER=1000000
 KAFKA__STARTING_OFFSETS=earliest
 ```
 
-#### 유지보수 (iceberg_maintenance, watermark_maintenance)
+#### 유지보수 (iceberg_maintenance)
 
-Settings를 사용하지 않으므로 Spark 런타임 변수만 필요합니다:
+배치 적재와 동일한 `STORAGE__*` 설정이 필요합니다:
 
 ```bash
-SPARK_HOME=/opt/spark
-HADOOP_CONF_DIR=/opt/hadoop/etc/hadoop
-PYSPARK_PYTHON=python3
+VAULT__URL=http://vault.svc.internal:8200
+VAULT__USERNAME=airflow
+VAULT__PASSWORD=changeme
+VAULT__SECRET_PATH=secret/data/user/database/local-mysql
+
+STORAGE__PROFILE=default
+STORAGE__CATALOG=awsdatacatalog
+STORAGE__BUCKET=your-bucket
+STORAGE__DATA_PATH=/iceberg
 ```
 
 ### Settings 클래스 구조

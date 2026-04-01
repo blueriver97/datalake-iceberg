@@ -1,3 +1,13 @@
+"""
+SQL Server → Iceberg 배치 적재 파이프라인
+
+JDBC로 SQL Server 테이블을 읽어 Iceberg 테이블로 전체 교체(RTAS)한다.
+
+실행:
+  spark-submit --py-files utils.zip sqlserver_to_iceberg.py \
+    --table "db.dbo.table_name" --num_partition 8 --env-file .env
+"""
+
 import argparse
 
 import pyspark.sql.functions as F

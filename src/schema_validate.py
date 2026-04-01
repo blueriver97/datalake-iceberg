@@ -1,3 +1,14 @@
+"""
+Iceberg 테이블 스키마 검증 및 주석 동기화
+
+소스 DB 스키마와 Iceberg 테이블의 컬럼 수/순서/타입/nullable/PK를 비교하고,
+테이블·컬럼 주석을 소스 DB에서 Iceberg로 동기화한다.
+
+실행:
+  spark-submit --py-files utils.zip schema_validate.py \
+    --table "db.table_name" --env-file .env
+"""
+
 import argparse
 
 from pyspark.sql import SparkSession

@@ -1,3 +1,13 @@
+"""
+MySQL → S3 Parquet 배치 적재 파이프라인
+
+JDBC로 MySQL 테이블을 읽어 S3에 Parquet 파일로 저장한다.
+
+실행:
+  spark-submit --py-files utils.zip mysql_to_parquet.py \
+    --table "db.table_name" --num_partition 8 --env-file .env
+"""
+
 import argparse
 
 import pyspark.sql.functions as F
