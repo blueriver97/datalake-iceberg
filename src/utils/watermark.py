@@ -51,7 +51,9 @@ def _ensure_cdc_watermark_table(spark: SparkSession, catalog: str, warehouse: st
             TBLPROPERTIES (
                 'format-version' = '2',
                 'write.metadata.delete-after-commit.enabled' = 'true',
-                'write.metadata.previous-versions-max' = '5'
+                'write.metadata.previous-versions-max' = '5',
+                'commit.retry.min-wait-ms' = '200',
+                'commit.retry.num-retries' = '20'
             )
         """)
 
@@ -85,7 +87,9 @@ def _ensure_maintenance_watermark_table(spark: SparkSession, catalog: str, wareh
             TBLPROPERTIES (
                 'format-version' = '2',
                 'write.metadata.delete-after-commit.enabled' = 'true',
-                'write.metadata.previous-versions-max' = '5'
+                'write.metadata.previous-versions-max' = '5',
+                'commit.retry.min-wait-ms' = '200',
+                'commit.retry.num-retries' = '20'
             )
         """)
 
