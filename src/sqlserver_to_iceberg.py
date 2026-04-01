@@ -118,6 +118,7 @@ if __name__ == "__main__":
         .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
         .config(f"spark.sql.catalog.{settings.CATALOG}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
         .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.WAREHOUSE)
+        .config(f"spark.sql.catalog.{settings.CATALOG}.s3.path-style-access", "true")
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
         .config(
             "spark.hadoop.fs.s3a.aws.credentials.provider",
