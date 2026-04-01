@@ -25,6 +25,14 @@ from pyspark.sql import Column, DataFrame, SparkSession, Window
 from pyspark.sql.avro.functions import from_avro
 
 from utils.listener import BatchProgressListener
+from utils.maintenance import (
+    ProcessedTableTracker,
+    ensure_watermark_tables,
+    get_last_completed_map,
+    run_compaction,
+    run_position_delete_compaction,
+    should_run,
+)
 from utils.settings import Settings
 from utils.signal import build_signal_path, check_stop_signal, cleanup_stop_signal
 from utils.spark_logging import SparkLoggerManager
@@ -32,39 +40,6 @@ from utils.spark_logging import SparkLoggerManager
 # ---------------------------------------------------------------------------
 # Watermark
 # ---------------------------------------------------------------------------
-
-
-def ensure_watermark_table(spark: SparkSession, config: Settings) -> None:
-    """ops_bronze.cdc_watermark 테이블이 없으면 생성한다."""
-    logger = SparkLoggerManager().get_logger()
-    full_table_name = f"{config.CATALOG}.ops_bronze.cdc_watermark"
-    if not spark.catalog.tableExists(full_table_name):
-        logger.info(f"Creating watermark table: {full_table_name}")
-        spark.sql(f"""
-            CREATE DATABASE IF NOT EXISTS {config.CATALOG}.ops_bronze
-            LOCATION '{config.WAREHOUSE}/ops_bronze'
-        """)
-        spark.sql(f"""
-            CREATE TABLE {full_table_name} (
-                dag_id                  STRING,
-                bronze_schema           STRING,
-                table_name              STRING,
-                scheduled_at            TIMESTAMP,
-                max_event_ts            TIMESTAMP,
-                processed_at            TIMESTAMP,
-                min_offset              BIGINT,
-                max_offset              BIGINT,
-                event_count             BIGINT,
-                processing_duration_sec DOUBLE,
-                batch_id                BIGINT
-            ) USING iceberg
-            LOCATION '{config.WAREHOUSE}/ops_bronze/cdc_watermark'
-            TBLPROPERTIES (
-                'format-version' = '2',
-                'write.metadata.delete-after-commit.enabled' = 'true',
-                'write.metadata.previous-versions-max' = '5'
-            )
-        """)
 
 
 def _build_watermark_values(
@@ -320,6 +295,9 @@ class PipelineContext:
     topic: str
     dag_id: str
     scheduled_at: str | None = None
+    tracker: ProcessedTableTracker | None = None
+    position_delete_interval: int = 0
+    position_delete_last_map: dict[str, object] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +422,10 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
             """)
             )
 
+    # 수정된 테이블 추적
+    if ctx.tracker is not None:
+        ctx.tracker.mark(full_table_name)
+
     # Watermark 기록
     table_duration = time.monotonic() - table_start_time
     stats = batch_df.agg(
@@ -483,6 +465,9 @@ def run_topic_stream(
     dag_id: str,
     starting_offsets: str | None = None,
     scheduled_at: str | None = None,
+    tracker: ProcessedTableTracker | None = None,
+    position_delete_interval: int = 0,
+    position_delete_last_map: dict | None = None,
 ) -> None:
     logger = SparkLoggerManager().get_logger()
 
@@ -503,6 +488,9 @@ def run_topic_stream(
         topic=topic,
         dag_id=dag_id,
         scheduled_at=scheduled_at,
+        tracker=tracker,
+        position_delete_interval=position_delete_interval,
+        position_delete_last_map=position_delete_last_map,
     )
 
     kafka_df = (
@@ -541,6 +529,13 @@ def run_topic_stream(
     )
     query.awaitTermination()
 
+    # position delete compaction (MoR 전용, pre-fetched map으로 시간 판단)
+    if processed and position_delete_interval > 0 and position_delete_last_map is not None:
+        key = f"{iceberg_schema}.{iceberg_table}"
+        if should_run(position_delete_last_map.get(key), position_delete_interval):
+            full_table_name = f"{settings.CATALOG}.{iceberg_schema}.{iceberg_table}"
+            run_position_delete_compaction(spark, settings.CATALOG, dag_id, full_table_name)
+
     # availableNow=True에서 새 메시지가 없으면 foreachBatch가 호출되지 않음.
     # 파이프라인 활성 상태 추적을 위해 heartbeat watermark를 기록한다.
     if not processed:
@@ -569,6 +564,18 @@ if __name__ == "__main__":
     parser.add_argument("--concurrency", type=int, default=3, help="동시 처리 토픽 수 (기본값: 3)")
     parser.add_argument("--starting-offsets-map", type=str, default=None, help="토픽별 시작 offset JSON (v1 전환용)")
     parser.add_argument("--scheduled-at", type=str, default=None, help="Airflow logical_date (배치 식별용)")
+    parser.add_argument(
+        "--compaction-interval",
+        type=int,
+        default=14400,
+        help="rewrite_data_files + expire_snapshots 실행 간격 초 (기본값: 14400 = 4시간)",
+    )
+    parser.add_argument(
+        "--position-delete-interval",
+        type=int,
+        default=0,
+        help="rewrite_position_delete_files 실행 간격 초 (기본값: 0 = 비활성, MoR 전환 시 3600)",
+    )
     args = parser.parse_args()
 
     settings = Settings()
@@ -621,14 +628,31 @@ if __name__ == "__main__":
     # UDF 등록
     spark.udf.register("byte_to_int", lambda x: int.from_bytes(x, byteorder="big", signed=False))
 
-    # CDC Watermark 테이블 초기화
-    ensure_watermark_table(spark, settings)
+    # Watermark 테이블 초기화 (cdc_watermark + maintenance_watermark)
+    ensure_watermark_tables(spark, settings.CATALOG, settings.WAREHOUSE)
 
     if check_stop_signal(spark, stop_signal_path):
         logger.warn(f"Stop signal detected at {stop_signal_path}. Exiting.")
         spark.stop()
         sys.exit(0)
 
+    # 토픽 → Iceberg 테이블 키 매핑 (벌크 쿼리용)
+    table_keys = []
+    for topic in topics:
+        _prefix, schema, table = topic.split(".")
+        table_keys.append(f"{schema.lower()}_bronze.{table.lower()}")
+
+    # position delete compaction용 pre-fetched map (스레드 시작 전 1회)
+    pdc_last_map = None
+    if args.position_delete_interval > 0:
+        pdc_last_map = get_last_completed_map(
+            spark,
+            settings.CATALOG,
+            table_keys,
+            "rewrite_position_delete_files",
+        )
+
+    tracker = ProcessedTableTracker()
     exceptions = []
     semaphore = threading.Semaphore(args.concurrency)
     logger.info(f"Processing {len(topics)} topics with concurrency={args.concurrency}")
@@ -644,7 +668,17 @@ if __name__ == "__main__":
                 t_spark.sparkContext.setLocalProperty("spark.scheduler.pool", t_topic)
                 t_spark.sparkContext.setLocalProperty("datahub.task.id", t_topic)
                 t_spark.sparkContext.setJobGroup(t_topic, f"Processing {t_topic}")
-                run_topic_stream(t_spark, t_settings, t_topic, dag_id, offsets_map.get(t_topic), args.scheduled_at)
+                run_topic_stream(
+                    t_spark,
+                    t_settings,
+                    t_topic,
+                    dag_id,
+                    offsets_map.get(t_topic),
+                    args.scheduled_at,
+                    tracker=tracker,
+                    position_delete_interval=args.position_delete_interval,
+                    position_delete_last_map=pdc_last_map,
+                )
             except Exception as e:
                 SparkLoggerManager().get_logger().error(f"Failed to process topic: {t_topic}, error: {e}")
                 exceptions.append(e)
@@ -657,6 +691,28 @@ if __name__ == "__main__":
 
     for t in threads:
         t.join()
+
+    # --- Compaction phase (모든 스레드 완료 후) ---
+    modified_tables = tracker.get_and_clear()
+    if modified_tables:
+        modified_keys = []
+        for full_table_name in modified_tables:
+            _catalog, bronze_schema, table_name = full_table_name.split(".")
+            modified_keys.append(f"{bronze_schema}.{table_name}")
+
+        compaction_map = get_last_completed_map(
+            spark,
+            settings.CATALOG,
+            modified_keys,
+            "rewrite_data_files",
+        )
+        for full_table_name in modified_tables:
+            _catalog, bronze_schema, table_name = full_table_name.split(".")
+            key = f"{bronze_schema}.{table_name}"
+            if should_run(compaction_map.get(key), args.compaction_interval):
+                run_compaction(spark, settings.CATALOG, dag_id, full_table_name)
+    else:
+        logger.info("No tables were modified; skipping compaction.")
 
     if exceptions:
         logger.error(f"Job failed: {len(exceptions)} topic(s) had errors.")

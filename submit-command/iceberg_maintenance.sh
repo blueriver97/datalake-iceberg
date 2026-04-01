@@ -16,10 +16,9 @@ spark-submit \
   --conf spark.executor.memory=1G \
   --conf spark.executor.instances=1 \
   iceberg_maintenance.py \
-  --catalog "awsdatacatalog" \
-  --warehouse "s3a://blueriver-datalake/data/iceberg" \
-  --schemas "store_bronze" \
-  --retention-days 1 \
-  --retain-last 5 \
-  --target-file-size 134217728 \
-  --min-file-size 100663296
+  --dag-id "glue_iceberg_maintenance" \
+  --schemas "store_bronze,ops_bronze" \
+  --orphan-older-than-days 3 \
+  --watermark-retention-days 14 \
+  --compaction-interval 86400 \
+  --orphan-interval 86400
