@@ -109,9 +109,14 @@ def cast_column(column: Column, debezium_dtype: str) -> Column:
         return F.date_add(F.lit("1970-01-01"), column.cast("int"))
     elif debezium_dtype == "io.debezium.time.MicroTime":
         return F.to_utc_timestamp(F.timestamp_seconds(column / 1_000_000), "UTC")
-    elif debezium_dtype in ("io.debezium.time.Timestamp", "io.debezium.time.MicroTimestamp"):
+    elif debezium_dtype == "io.debezium.time.Timestamp":
         is_valid = column.isNotNull() & (column != 0)
         return F.when(is_valid, F.to_utc_timestamp(F.timestamp_millis(column), "Asia/Seoul")).otherwise(
+            F.lit(None).cast(T.TimestampType())
+        )
+    elif debezium_dtype == "io.debezium.time.MicroTimestamp":
+        is_valid = column.isNotNull() & (column != 0)
+        return F.when(is_valid, F.to_utc_timestamp(F.timestamp_micros(column), "Asia/Seoul")).otherwise(
             F.lit(None).cast(T.TimestampType())
         )
     elif debezium_dtype == "io.debezium.time.ZonedTimestamp":
