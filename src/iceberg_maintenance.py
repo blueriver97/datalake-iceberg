@@ -79,9 +79,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--orphan-interval", type=int, default=86400, help="remove_orphan_files 실행 간격 초 (기본값: 86400 = 24시간)"
     )
+    parser.add_argument("--env-file", type=str, default=".env", help="환경 설정 파일 경로 (기본값: .env)")
     args = parser.parse_args()
 
-    settings = Settings()
+    settings = Settings(_env_file=args.env_file)
     dag_id = args.dag_id
     schemas = [s.strip() for s in args.schemas.split(",")]
 

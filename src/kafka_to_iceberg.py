@@ -576,9 +576,10 @@ if __name__ == "__main__":
         default=0,
         help="rewrite_position_delete_files 실행 간격 초 (기본값: 0 = 비활성, MoR 전환 시 3600)",
     )
+    parser.add_argument("--env-file", type=str, default=".env", help="환경 설정 파일 경로 (기본값: .env)")
     args = parser.parse_args()
 
-    settings = Settings()
+    settings = Settings(_env_file=args.env_file)
     dag_id = args.dag_id
 
     # starting-offsets-map 디코딩 예시:

@@ -236,8 +236,9 @@ def main(spark: SparkSession, config: Settings, app_args) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--table", type=str)
+    parser.add_argument("--env-file", type=str, default=".env", help="환경 설정 파일 경로 (기본값: .env)")
     args = parser.parse_args()
-    settings = Settings()
+    settings = Settings(_env_file=args.env_file)
 
     spark = (
         SparkSession.builder.appName("schema_validate")

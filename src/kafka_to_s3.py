@@ -177,8 +177,9 @@ if __name__ == "__main__":
         default=None,
         help='토픽별 파티션 오버라이드 JSON (예: \'{"topic": "year,month,day,hour"}\')',
     )
+    parser.add_argument("--env-file", type=str, default=".env", help="환경 설정 파일 경로 (기본값: .env)")
     args = parser.parse_args()
-    settings = Settings()
+    settings = Settings(_env_file=args.env_file)
     dag_id = args.dag_id
     output_path = args.output_path
 
