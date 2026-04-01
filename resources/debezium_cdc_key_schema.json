@@ -1,0 +1,38 @@
+{
+  "type": "record",
+  "name": "Key",
+  "namespace": "local.store.TB_COMPOSITE_KEY",
+  "fields": [
+    {
+      "name": "id",
+      "type": {
+        "type": "int",
+        "connect.doc": "기본키1"
+      }
+    },
+    {
+      "name": "DATE1",
+      "type": {
+        "type": "int",
+        "connect.doc": "기본키2",
+        "connect.version": 1,
+        "connect.name": "io.debezium.time.Date"
+      }
+    },
+    {
+      "name": "integer1",
+      "type": {
+        "type": "int",
+        "connect.doc": "기본키3"
+      }
+    },
+    {
+      "name": "char36",
+      "type": {
+        "type": "string",
+        "connect.doc": "기본키4"
+      }
+    }
+  ],
+  "connect.name": "local.store.TB_COMPOSITE_KEY.Key"
+}

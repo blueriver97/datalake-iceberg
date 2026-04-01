@@ -1,0 +1,366 @@
+{
+  "type": "record",
+  "name": "Envelope",
+  "namespace": "local.store.TB_COMPOSITE_KEY",
+  "fields": [
+    {
+      "name": "before",
+      "type": [
+        "null",
+        {
+          "type": "record",
+          "name": "Value",
+          "fields": [
+            {
+              "name": "id",
+              "type": {
+                "type": "int",
+                "connect.doc": "기본키1"
+              }
+            },
+            {
+              "name": "char36",
+              "type": {
+                "type": "string",
+                "connect.doc": "기본키4"
+              }
+            },
+            {
+              "name": "varchar36",
+              "type": [
+                "null",
+                {
+                  "type": "string",
+                  "connect.doc": "VARCHAR"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "integer1",
+              "type": {
+                "type": "int",
+                "connect.doc": "기본키3"
+              }
+            },
+            {
+              "name": "integer2",
+              "type": [
+                "null",
+                {
+                  "type": "long",
+                  "connect.doc": "BIGINT"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "unsigned_int",
+              "type": [
+                "null",
+                {
+                  "type": "long",
+                  "connect.doc": "UNSIGNED INT"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "float1",
+              "type": [
+                "null",
+                {
+                  "type": "float",
+                  "connect.doc": "FLOAT"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "double1",
+              "type": [
+                "null",
+                {
+                  "type": "double",
+                  "connect.doc": "DOUBLE"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "decimal1",
+              "type": [
+                "null",
+                {
+                  "type": "bytes",
+                  "scale": 8,
+                  "precision": 12,
+                  "connect.doc": "DECIMAL",
+                  "connect.version": 1,
+                  "connect.parameters": {
+                    "scale": "8",
+                    "connect.decimal.precision": "12"
+                  },
+                  "connect.name": "org.apache.kafka.connect.data.Decimal",
+                  "logicalType": "decimal"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "boolean1",
+              "type": [
+                "null",
+                {
+                  "type": "boolean",
+                  "connect.doc": "BOOLEAN"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "BLOB1",
+              "type": [
+                "null",
+                {
+                  "type": "bytes",
+                  "connect.doc": "BLOB"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "TEXT1",
+              "type": [
+                "null",
+                {
+                  "type": "string",
+                  "connect.doc": "TEXT"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "DATE1",
+              "type": {
+                "type": "int",
+                "connect.doc": "기본키2",
+                "connect.version": 1,
+                "connect.name": "io.debezium.time.Date"
+              }
+            },
+            {
+              "name": "TIME1",
+              "type": [
+                "null",
+                {
+                  "type": "long",
+                  "connect.doc": "TIME",
+                  "connect.version": 1,
+                  "connect.name": "io.debezium.time.MicroTime"
+                }
+              ],
+              "default": null
+            },
+            {
+              "name": "DATETIME1",
+              "type": [
+                {
+                  "type": "long",
+                  "connect.doc": "DATETIME",
+                  "connect.version": 1,
+                  "connect.default": 0,
+                  "connect.name": "io.debezium.time.Timestamp"
+                },
+                "null"
+              ],
+              "default": 0
+            },
+            {
+              "name": "CREATE_DATETIME",
+              "type": [
+                {
+                  "type": "long",
+                  "connect.doc": "생성일시_DATETIME",
+                  "connect.version": 1,
+                  "connect.default": 0,
+                  "connect.name": "io.debezium.time.MicroTimestamp"
+                },
+                "null"
+              ],
+              "default": 0
+            },
+            {
+              "name": "UPDATE_TIMESTAMP",
+              "type": [
+                "null",
+                {
+                  "type": "string",
+                  "connect.doc": "수정일시_TIMESTAMP",
+                  "connect.version": 1,
+                  "connect.name": "io.debezium.time.ZonedTimestamp"
+                }
+              ],
+              "default": null
+            }
+          ],
+          "connect.name": "local.store.TB_COMPOSITE_KEY.Value"
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "after",
+      "type": ["null", "Value"],
+      "default": null
+    },
+    {
+      "name": "source",
+      "type": {
+        "type": "record",
+        "name": "Source",
+        "namespace": "io.debezium.connector.mysql",
+        "fields": [
+          {
+            "name": "version",
+            "type": "string"
+          },
+          {
+            "name": "connector",
+            "type": "string"
+          },
+          {
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "name": "ts_ms",
+            "type": "long"
+          },
+          {
+            "name": "snapshot",
+            "type": [
+              {
+                "type": "string",
+                "connect.version": 1,
+                "connect.parameters": {
+                  "allowed": "true,first,first_in_data_collection,last_in_data_collection,last,false,incremental"
+                },
+                "connect.default": "false",
+                "connect.name": "io.debezium.data.Enum"
+              },
+              "null"
+            ],
+            "default": "false"
+          },
+          {
+            "name": "db",
+            "type": "string"
+          },
+          {
+            "name": "sequence",
+            "type": ["null", "string"],
+            "default": null
+          },
+          {
+            "name": "ts_us",
+            "type": ["null", "long"],
+            "default": null
+          },
+          {
+            "name": "ts_ns",
+            "type": ["null", "long"],
+            "default": null
+          },
+          {
+            "name": "table",
+            "type": ["null", "string"],
+            "default": null
+          },
+          {
+            "name": "server_id",
+            "type": "long"
+          },
+          {
+            "name": "gtid",
+            "type": ["null", "string"],
+            "default": null
+          },
+          {
+            "name": "file",
+            "type": "string"
+          },
+          {
+            "name": "pos",
+            "type": "long"
+          },
+          {
+            "name": "row",
+            "type": "int"
+          },
+          {
+            "name": "thread",
+            "type": ["null", "long"],
+            "default": null
+          },
+          {
+            "name": "query",
+            "type": ["null", "string"],
+            "default": null
+          }
+        ],
+        "connect.version": 1,
+        "connect.name": "io.debezium.connector.mysql.Source"
+      }
+    },
+    {
+      "name": "transaction",
+      "type": [
+        "null",
+        {
+          "type": "record",
+          "name": "block",
+          "namespace": "event",
+          "fields": [
+            {
+              "name": "id",
+              "type": "string"
+            },
+            {
+              "name": "total_order",
+              "type": "long"
+            },
+            {
+              "name": "data_collection_order",
+              "type": "long"
+            }
+          ],
+          "connect.version": 1,
+          "connect.name": "event.block"
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "op",
+      "type": "string"
+    },
+    {
+      "name": "ts_ms",
+      "type": ["null", "long"],
+      "default": null
+    },
+    {
+      "name": "ts_us",
+      "type": ["null", "long"],
+      "default": null
+    },
+    {
+      "name": "ts_ns",
+      "type": ["null", "long"],
+      "default": null
+    }
+  ],
+  "connect.version": 2,
+  "connect.name": "local.store.TB_COMPOSITE_KEY.Envelope"
+}

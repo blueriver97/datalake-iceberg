@@ -1,0 +1,85 @@
+{
+  "after": {
+    "Value": {
+      "id": 33,
+      "char36": "Radio matter where rest.",
+      "varchar36": {
+        "string": "Him strategy remember wrong."
+      },
+      "integer1": 1992326530,
+      "integer2": {
+        "long": 9109319090569724910
+      },
+      "unsigned_int": {
+        "long": 270029265
+      },
+      "float1": {
+        "float": 1925.27
+      },
+      "decimal1": {
+        "bytes": 5986.07380386
+      },
+      "boolean1": {
+        "boolean": false
+      },
+      "BLOB1": {
+        "bytes": "æ²-³iR8Çø\tá,íd\u001d½;Îllw\u0004ÃP×\u0002;?>OKÚ8Ö¼ÒïAüb;P²oÚä¬]Á#D\nÏúÓ¹ßCnL!úí\u0011$?§ß¬¹'Rc/9zCÃêª\u0015Ç'âJgKU¥ü\u0017\u0017½\u0019åÞ?Üè\u0013*XÝ:°\u0002|@]-7\b¦MÜª]&±Á(Ù$ò\u000e5âÝÈ\u000f9á¶&DÜº¥«{]ÙÑ·\u0016©rÜ5\u0001XóÇUá\u000eÙ\u0015¦\u001f$o\u001e@mÄ¶xjª¢b.\u0018\u0006y\r2ÿc(§áÙV@îd£m¤\u0016(^\u0017\u0017`bèò\u001c\u0014\u0013¥eÔ¦F/ð\"Ù\u001f\b%ÌG+±ÖO¹XÛ\u0010«\n&(Ü¬ª3Ué'\u0012ØRËWù?X\u0017s0%YÊ×v)[_\"tJ¡IàO~\u0015È-G0­êÐ>AiTYqH\u0002\r4\u0006ê\\\u0007Ösæîi)Ë¨ÐÉQ\u0017.Û?}\u0006|vWp.þ\u001f~è\u00180úþM·z9,\u0014\u0015Tê»\bcüÒºµ©Ûm üß.?]u\u0005Þ¾\u0001\u0014\u0017SÛaä¶¾l\u0013U,ÚØNb¥úÀû,×n¤«×É©\u00186\u001fÒÓÏ\u000e¡vßÈ×ó|AmÓÃlW\u0005èå(_Ûsù¬f?\u0010÷Áw}oáñ!9.%Hâ\u0011QÈ¾4\u0005ÒåÐÉIQ²InØØóUäqsn\u001c\u001eZµÓ1xh\u0001Èr,|`\u0003½çOáp8m%]Ì­×UCVÕÏäÛwM¥\u0017¡\\²Q©\u00176¬vAÞ\u000botþ\u001e½¢\u0011CKcªgïè\rËÂ®¢ÿ¢àë\"Ç^\t\u0001µ5óÂÏµãh\u0002Õ×\u0012¶5G&IçhÑñ\u0006jÆÚ«\u001eÖ+õPd6ÔqjÌpç½ðÐ\u0011´þ\u0004#ÕAôÐ\u001bîùD­NûÂ7ò¾»ì¶/à?cÔ ,6¢¹ÇÆn¢+KPAÞ¼\u0007cUv¢§õâ±äñ2Þ\u0005Ãe Ê³UÇÞ F¾î?%|qS2\u0010×Æ/¦:0.^ÃÂ_³­\nÁØ*Ø\u001aýöàC×Ón\u0001WÆ[ã42®\u001eY££0ôViË×·B'jòÈ&B&m§Ruò\\]®CÌmGP\u0012Eb\u0000ö´³Ð\u001fDì¬?¶>\u000eß\t#\u0010ðkÍXø\u0014Ôð}ªh5öuæ@ÜÛµúkÖ\u0014¼Òê¸\u0006(\u0004GÒ¼³·6mìÂRF´-!¶gkiÕäV\u0018h:¼Êñ¤¸\u0007òÙ\u0013ÑõZ\fg\u000e2¸×â<\u0007}\u0017v8B\\ \f|©Ï[§V0ÑÚoâdIéÃÔ$i¶!wDR?.°ò\u0019¾»ªR1SÓ\r+T¿(ò©]e*^è5³ñCÏaã,ëSÿÔê(«PÊMì?qÑ WF\u001b.S\fBL¯b³d\u001dö'(Ó"
+      },
+      "TEXT1": {
+        "string": "Campaign factor next work. Many ground staff strategy charge. Lawyer put huge six white appear performance. Plan red hospital direction experience."
+      },
+      "DATE1": 19136,
+      "TIME1": {
+        "long": 19689000000
+      },
+      "DATETIME1": {
+        "long": 1584598489000
+      },
+      "CREATE_DATETIME": {
+        "long": 1651942920734645
+      },
+      "UPDATE_TIMESTAMP": {
+        "string": "2023-05-27T21:28:30.715134Z"
+      }
+    }
+  },
+  "source": {
+    "version": "3.4.0.Final",
+    "connector": "mysql",
+    "name": "local",
+    "ts_ms": 1774788399546,
+    "snapshot": {
+      "string": "false"
+    },
+    "db": "store",
+    "ts_us": {
+      "long": 1774788399546922
+    },
+    "ts_ns": {
+      "long": 1774788399546922000
+    },
+    "table": {
+      "string": "TB_COMPOSITE_KEY"
+    },
+    "server_id": 1,
+    "gtid": {
+      "string": "3579b3a2-0808-11f1-962c-e606364c92ea:38"
+    },
+    "file": "mysql-bin.000006",
+    "pos": 440169,
+    "row": 0,
+    "thread": {
+      "long": 71
+    }
+  },
+  "op": "c",
+  "ts_ms": {
+    "long": 1774788399554
+  },
+  "ts_us": {
+    "long": 1774788399554415
+  },
+  "ts_ns": {
+    "long": 1774788399554415289
+  }
+}
