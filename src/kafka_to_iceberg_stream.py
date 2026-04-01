@@ -26,16 +26,11 @@ from pyspark.sql import SparkSession
 
 from utils.cdc_pipeline import run_topic_stream
 from utils.listener import BatchProgressListener
-from utils.maintenance import (
-    ProcessedTableTracker,
-    ensure_watermark_tables,
-    get_last_completed_map,
-    run_compaction,
-    should_run,
-)
+from utils.maintenance import ProcessedTableTracker, run_compaction
 from utils.settings import Settings
 from utils.signal import build_signal_path, check_stop_signal, cleanup_stop_signal
 from utils.spark_logging import SparkLoggerManager
+from utils.watermark import ensure_watermark_tables, get_last_completed_map, should_run
 
 # ---------------------------------------------------------------------------
 # Round Runner

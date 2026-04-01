@@ -17,14 +17,10 @@ from pyspark import StorageLevel
 from pyspark.sql import Column, DataFrame, SparkSession, Window
 from pyspark.sql.avro.functions import from_avro
 
-from utils.maintenance import (
-    ProcessedTableTracker,
-    run_position_delete_compaction,
-    should_run,
-)
+from utils.maintenance import ProcessedTableTracker, run_position_delete_compaction
 from utils.settings import Settings
 from utils.spark_logging import SparkLoggerManager
-from utils.watermark import append_watermark
+from utils.watermark import append_cdc_watermark, should_run
 
 # ---------------------------------------------------------------------------
 # Debezium Schema / Type Casting
@@ -171,7 +167,8 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
     logger.info(f"{ctx.topic} | Key Schema Ids: {key_schema_ids} | Value Schema Ids: {value_schema_ids}")
 
     # 스키마 버전별 데이터 변환 및 Iceberg 적재
-    for value_schema_id, value_schema_str in value_schema_dict.items():
+    # 스키마 ID 오름차순 정렬: 구 버전을 먼저 처리하여 신 버전 MERGE가 최종 상태를 보장한다.
+    for value_schema_id, value_schema_str in sorted(value_schema_dict.items()):
         schema_filtered_df = batch_df.filter(F.col("value_schema_id") == value_schema_id)
         value_schema = json.loads(value_schema_str)
         debezium_schema = extract_debezium_schema(value_schema)
@@ -280,9 +277,9 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
 
     batch_df.unpersist()
 
-    append_watermark(
+    append_cdc_watermark(
         spark,
-        ctx.settings,
+        ctx.settings.CATALOG,
         ctx.dag_id,
         iceberg_schema,
         iceberg_table,
@@ -382,9 +379,9 @@ def run_topic_stream(
     # availableNow=True에서 새 메시지가 없으면 foreachBatch가 호출되지 않음.
     # 파이프라인 활성 상태 추적을 위해 heartbeat watermark를 기록한다.
     if not processed:
-        append_watermark(
+        append_cdc_watermark(
             spark,
-            settings,
+            settings.CATALOG,
             dag_id,
             iceberg_schema,
             iceberg_table,

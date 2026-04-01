@@ -18,16 +18,15 @@ from argparse import ArgumentParser
 
 from pyspark.sql import SparkSession
 
-from utils.maintenance import (
-    ensure_watermark_tables,
-    get_last_completed_map,
-    purge_old_watermark_records,
-    run_compaction,
-    run_orphan_cleanup,
-    should_run,
-)
+from utils.maintenance import run_compaction, run_orphan_cleanup
 from utils.settings import Settings
 from utils.spark_logging import SparkLoggerManager
+from utils.watermark import (
+    ensure_watermark_tables,
+    get_last_completed_map,
+    purge_watermarks,
+    should_run,
+)
 
 # ---------------------------------------------------------------------------
 # Table Discovery
@@ -116,7 +115,7 @@ if __name__ == "__main__":
     # 1단계: watermark 레코드 정리 (14일 이전 DELETE)
     # -----------------------------------------------------------------------
     logger.info(f"=== Step 1: Purging watermark records older than {args.watermark_retention_days} days ===")
-    purge_old_watermark_records(spark, settings.CATALOG, args.watermark_retention_days)
+    purge_watermarks(spark, settings.CATALOG, args.watermark_retention_days)
 
     # -----------------------------------------------------------------------
     # 2단계: ops_bronze compaction + expire_snapshots
