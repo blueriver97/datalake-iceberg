@@ -1,29 +1,18 @@
 import argparse
 
 import pyspark.sql.functions as F
-import pyspark.sql.types as T
-from pyspark.sql import Column, DataFrame, SparkSession
+from pyspark.sql import DataFrame, SparkSession
 
 # --- Import common modules ---
+from utils.cleansing import trim_string_columns
 from utils.database import BaseDatabaseManager, MySQLManager
 from utils.settings import Settings
 from utils.spark_logging import SparkLoggerManager
 
 
-def cast_dataframe(df: DataFrame) -> DataFrame:
-    """MySQL CHAR 타입 Trim 처리"""
-
-    def cast_column_type(field: T.StructField) -> Column:
-        if isinstance(field.dataType, T.StringType):
-            return F.trim(F.col(field.name)).alias(field.name)
-        return F.col(field.name).alias(field.name)
-
-    return df.select([cast_column_type(field) for field in df.schema.fields])
-
-
 def process_mysql_to_parquet(
     spark: SparkSession,
-    config: Settings,
+    settings: Settings,
     db_manager: BaseDatabaseManager,
     table_name: str,
     num_partition: int,
@@ -33,7 +22,7 @@ def process_mysql_to_parquet(
 
     Args:
         spark (SparkSession): Spark 세션 객체
-        config (Settings): 설정 객체
+        settings (Settings): 설정 객체
         db_manager (BaseDatabaseManager): 데이터베이스 관리자 객체
         table_name (str): 대상 테이블 명 (db.table)
         num_partition (int): 파티션 개수
@@ -47,7 +36,7 @@ def process_mysql_to_parquet(
     else:
         raise ValueError(f"Invalid table name format: '{table_name}'. Expected 'db.table'.")
 
-    output_path = f"{config.WAREHOUSE}/{schema}/{table}"
+    output_path = f"{settings.WAREHOUSE}/{schema}/{table}"
 
     partition_column = db_manager.get_partition_key(spark, table_name)
     jdbc_options = db_manager.get_jdbc_options(database=schema)
@@ -79,7 +68,7 @@ def process_mysql_to_parquet(
         logger.info(f"Reading '{table_name}' without partitioning.")
         jdbc_df = spark.read.format("jdbc").options(**jdbc_options).option("dbtable", table_name).load()
 
-    jdbc_df = cast_dataframe(jdbc_df)
+    jdbc_df = trim_string_columns(jdbc_df)
     jdbc_df = jdbc_df.withColumn("update_ts_dms", F.current_timestamp())
 
     logger.info(f"Writing Parquet to {output_path}")
@@ -87,7 +76,7 @@ def process_mysql_to_parquet(
     logger.info(f"Successfully wrote {table_name} to {output_path}")
 
 
-def main(spark: SparkSession, config: Settings, app_args) -> None:
+def main(spark: SparkSession, settings: Settings, app_args) -> None:
     """
     Reads data from a MySQL database and saves it as Parquet files on S3.
     """
@@ -101,8 +90,8 @@ def main(spark: SparkSession, config: Settings, app_args) -> None:
     num_partition = app_args.num_partition
 
     try:
-        db_manager = MySQLManager(config)
-        process_mysql_to_parquet(spark, config, db_manager, table_name, num_partition)
+        db_manager = MySQLManager(settings)
+        process_mysql_to_parquet(spark, settings, db_manager, table_name, num_partition)
     except Exception as e:
         logger.error(f"Failed to process table '{table_name}': {e}")
         raise e
@@ -133,6 +122,7 @@ if __name__ == "__main__":
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.sql.parquet.datetimeRebaseModeInWrite", "CORRECTED")
         .config("spark.sql.parquet.int96RebaseModeInWrite", "CORRECTED")
+        .config("spark.sql.optimizer.excludedRules", "org.apache.spark.sql.catalyst.optimizer.SimplifyCasts")
         .getOrCreate()
     )
 

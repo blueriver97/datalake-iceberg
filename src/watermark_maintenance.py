@@ -2,10 +2,7 @@
 CDC Watermark Maintenance (Append-only 테이블 정리)
 
 Airflow에서 spark-submit으로 실행:
-  spark-submit --py-files utils.zip watermark_maintenance.py \
-    --catalog awsdatacatalog \
-    --warehouse s3a://bucket/iceberg \
-    --retention-days 7
+  spark-submit --py-files utils.zip watermark_maintenance.py --retention-days 7
 """
 
 import datetime
@@ -13,6 +10,7 @@ from argparse import ArgumentParser
 
 from pyspark.sql import SparkSession
 
+from utils.settings import Settings
 from utils.spark_logging import SparkLoggerManager
 
 
@@ -69,19 +67,20 @@ def run_maintenance(spark: SparkSession, catalog: str, retention_days: int) -> N
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--catalog", type=str, required=True, help="Iceberg catalog 이름")
-    parser.add_argument("--warehouse", type=str, required=True, help="Iceberg warehouse 경로 (s3a://...)")
     parser.add_argument("--retention-days", type=int, required=True, help="보관 기간 (일)")
+    parser.add_argument("--env-file", type=str, default=".env", help="환경 설정 파일 경로 (기본값: .env)")
     args = parser.parse_args()
+
+    settings = Settings(_env_file=args.env_file)
 
     spark = (
         SparkSession.builder.appName("watermark_maintenance")
-        .config("spark.sql.defaultCatalog", args.catalog)
-        .config(f"spark.sql.catalog.{args.catalog}", "org.apache.iceberg.spark.SparkCatalog")
-        .config(f"spark.sql.catalog.{args.catalog}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
-        .config(f"spark.sql.catalog.{args.catalog}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
-        .config(f"spark.sql.catalog.{args.catalog}.warehouse", args.warehouse)
-        .config(f"spark.sql.catalog.{args.catalog}.s3.path-style-access", "true")
+        .config("spark.sql.defaultCatalog", settings.CATALOG)
+        .config(f"spark.sql.catalog.{settings.CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
+        .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
+        .config(f"spark.sql.catalog.{settings.CATALOG}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
+        .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.WAREHOUSE)
+        .config(f"spark.sql.catalog.{settings.CATALOG}.s3.path-style-access", "true")
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
         .config(
             "spark.hadoop.fs.s3a.aws.credentials.provider",
@@ -94,5 +93,5 @@ if __name__ == "__main__":
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)
 
-    run_maintenance(spark, args.catalog, args.retention_days)
+    run_maintenance(spark, settings.CATALOG, args.retention_days)
     spark.stop()

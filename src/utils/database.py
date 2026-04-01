@@ -107,13 +107,13 @@ class BaseDatabaseManager(ABC):
     데이터베이스 관리를 위한 추상 베이스 클래스
     """
 
-    def __init__(self, config):
+    def __init__(self, settings):
         # 설정 객체 초기화
-        self.config = config
+        self.settings = settings
 
     def _execute_jdbc_query(self, spark: SparkSession, options: dict[str, str], query: str) -> DataFrame:
         # JDBC 쿼리 실행 및 데이터프레임 반환
-        print(f"Executing JDBC query on {self.config.database.type}")
+        print(f"Executing JDBC query on {self.settings.database.type}")
         return spark.read.format("jdbc").options(**options).option("query", query).load()
 
     @abstractmethod
@@ -164,7 +164,7 @@ class MySQLManager(BaseDatabaseManager):
 
     def get_jdbc_options(self, database: str = "") -> dict[str, str]:
         # MySQL 연결 옵션 생성
-        db = self.config.database
+        db = self.settings.database
         options = {
             "url": f"jdbc:mysql://{db.host}:{db.port}/{database}?zeroDateTimeBehavior=convertToNull&useUnicode=true&characterEncoding=UTF-8",
             "driver": "com.mysql.cj.jdbc.Driver",
@@ -271,7 +271,7 @@ class SQLServerManager(BaseDatabaseManager):
 
     def get_jdbc_options(self, database: str | None = None) -> dict[str, str]:
         # MSSQL 연결 옵션 생성 (encrypt=false 기본값 설정)
-        db = self.config.database
+        db = self.settings.database
         db_prop = f";databaseName={database}" if database else ""
         options = {
             "url": f"jdbc:sqlserver://{db.host}:{db.port}{db_prop};encrypt=false;",

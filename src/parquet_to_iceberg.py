@@ -2,30 +2,31 @@ import argparse
 
 import pyspark.sql.functions as F
 import pyspark.sql.types as T
-from pyspark.sql import Column, DataFrame, SparkSession
+from pyspark.sql import DataFrame, SparkSession
 
 # --- Import common modules ---
+from utils.cleansing import trim_string_columns
 from utils.database import BaseDatabaseManager, MySQLManager, SQLServerManager
+from utils.iceberg import create_or_replace_iceberg_table
 from utils.settings import Settings
 from utils.spark_logging import SparkLoggerManager
 
 
-def cast_dataframe(df: DataFrame) -> DataFrame:
-    """Parquet 파일의 타임스탬프 UTC 보정 및 CHAR 타입 Trim 처리"""
-
-    def cast_column_type(field: T.StructField) -> Column:
-        if isinstance(field.dataType, T.StringType):
-            return F.trim(F.col(field.name)).alias(field.name)
-        if isinstance(field.dataType, T.TimestampType):
-            return F.to_utc_timestamp(F.col(field.name), "UTC").alias(field.name)
-        return F.col(field.name).alias(field.name)
-
-    return df.select([cast_column_type(field) for field in df.schema.fields])
+def convert_timestamps_to_utc(df: DataFrame) -> DataFrame:
+    """Parquet 파일의 TimestampType 컬럼을 UTC로 보정한다."""
+    return df.select(
+        [
+            F.to_utc_timestamp(F.col(field.name), "UTC").alias(field.name)
+            if isinstance(field.dataType, T.TimestampType)
+            else F.col(field.name).alias(field.name)
+            for field in df.schema.fields
+        ]
+    )
 
 
 def process_parquet_to_iceberg(
     spark: SparkSession,
-    config: Settings,
+    settings: Settings,
     db_manager: BaseDatabaseManager,
     table_name: str,
 ) -> None:
@@ -34,7 +35,7 @@ def process_parquet_to_iceberg(
 
     Args:
         spark (SparkSession): Spark 세션 객체
-        config (Settings): 설정 객체
+        settings (Settings): 설정 객체
         db_manager (BaseDatabaseManager): 데이터베이스 관리자 객체
         table_name (str): 대상 테이블 명 (db.table 또는 db.dbo.table)
     """
@@ -51,15 +52,15 @@ def process_parquet_to_iceberg(
 
     bronze_schema = f"{schema.lower()}_bronze"
     target_table = table.lower()
-    full_table_name = f"{config.CATALOG}.{bronze_schema}.{target_table}"
-    parquet_path = f"{config.WAREHOUSE}/{schema}/{table}"
+    parquet_path = f"{settings.WAREHOUSE}/{schema}/{table}"
 
     pk_cols = db_manager.get_primary_key(spark, table_name)
 
     logger.info(f"Reading Parquet from {parquet_path}")
     parquet_df = spark.read.parquet(parquet_path)
 
-    parquet_df = cast_dataframe(parquet_df)
+    parquet_df = trim_string_columns(parquet_df)
+    parquet_df = convert_timestamps_to_utc(parquet_df)
 
     # update_ts_dms → last_applied_date 리네이밍
     if "update_ts_dms" in parquet_df.columns:
@@ -67,36 +68,13 @@ def process_parquet_to_iceberg(
     else:
         parquet_df = parquet_df.withColumn("last_applied_date", F.current_timestamp())
 
-    # 데이터베이스 생성
-    spark.sql(
-        f"CREATE DATABASE IF NOT EXISTS {config.CATALOG}.{bronze_schema} LOCATION '{config.WAREHOUSE}/{bronze_schema}'"
-    )
-
-    logger.info(f"Creating or replacing {full_table_name}")
-
     if pk_cols:
         parquet_df = parquet_df.withColumn("id_iceberg", F.md5(F.concat_ws("|", *[F.col(pk) for pk in pk_cols])))
 
-    # Iceberg 테이블 생성 및 데이터 쓰기 (RTAS)
-    writer = (
-        parquet_df.writeTo(full_table_name)
-        .using("iceberg")
-        .tableProperty("location", f"{config.WAREHOUSE}/{bronze_schema}/{target_table}")
-        .tableProperty("format-version", "2")
-    )
-
-    if pk_cols:
-        writer = (
-            writer.tableProperty("write.metadata.delete-after-commit.enabled", "true")
-            .tableProperty("write.metadata.previous-versions-max", "5")
-            .tableProperty("history.expire.max-snapshot-age-ms", "86400000")
-        )
-
-    writer.createOrReplace()
-    logger.info(f"Successfully created or replaced {full_table_name}")
+    create_or_replace_iceberg_table(spark, parquet_df, settings, bronze_schema, target_table, pk_cols)
 
 
-def main(spark: SparkSession, config: Settings, app_args) -> None:
+def main(spark: SparkSession, settings: Settings, app_args) -> None:
     """
     Reads Parquet files from S3 and saves them as Iceberg tables.
     """
@@ -110,12 +88,12 @@ def main(spark: SparkSession, config: Settings, app_args) -> None:
 
     try:
         db_manager: BaseDatabaseManager
-        if config.database.type == "sqlserver":
-            db_manager = SQLServerManager(config)
+        if settings.database.type == "sqlserver":
+            db_manager = SQLServerManager(settings)
         else:
-            db_manager = MySQLManager(config)
+            db_manager = MySQLManager(settings)
 
-        process_parquet_to_iceberg(spark, config, db_manager, table_name)
+        process_parquet_to_iceberg(spark, settings, db_manager, table_name)
     except Exception as e:
         logger.error(f"Failed to process table '{table_name}': {e}")
         raise e

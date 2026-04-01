@@ -25,14 +25,14 @@ def _parse_table_name(table_name: str, db_type: str) -> tuple[str, str]:
 
 def compare_columns(
     spark: SparkSession,
-    config: Settings,
+    settings: Settings,
     db_manager: BaseDatabaseManager,
     table_name: str,
 ) -> None:
     """컬럼 수, 순서, 데이터 타입 비교 + 미반영 컬럼 리포팅"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, config.database.type)
-    full_table_name = f"{config.CATALOG}.{bronze_schema}.{target_table}"
+    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
+    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
 
     source_schema = db_manager.get_schema(spark, table_name)
     iceberg_schema = spark.table(full_table_name).schema
@@ -64,7 +64,7 @@ def compare_columns(
         iceberg_field = iceberg_field_map.get(col_name.lower())
         if iceberg_field is None:
             continue
-        expected_type = convert_db_type_to_spark(source_type, config.database.type)
+        expected_type = convert_db_type_to_spark(source_type, settings.database.type)
         if not isinstance(iceberg_field.dataType, type(expected_type)):
             logger.warn(
                 f"[{table_name}] Type mismatch for '{col_name}': "
@@ -74,14 +74,14 @@ def compare_columns(
 
 def sync_column_comments(
     spark: SparkSession,
-    config: Settings,
+    settings: Settings,
     db_manager: BaseDatabaseManager,
     table_name: str,
 ) -> None:
     """원천 DB 컬럼 주석을 Iceberg 테이블에 동기화"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, config.database.type)
-    full_table_name = f"{config.CATALOG}.{bronze_schema}.{target_table}"
+    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
+    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
 
     source_comments = db_manager.get_column_comments(spark, table_name)
     iceberg_fields = {f.name.lower(): f for f in spark.table(full_table_name).schema.fields}
@@ -103,14 +103,14 @@ def sync_column_comments(
 
 def compare_nullable(
     spark: SparkSession,
-    config: Settings,
+    settings: Settings,
     db_manager: BaseDatabaseManager,
     table_name: str,
 ) -> None:
     """원천 DB와 Iceberg 테이블의 nullable 정합성 비교"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, config.database.type)
-    full_table_name = f"{config.CATALOG}.{bronze_schema}.{target_table}"
+    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
+    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
 
     source_nullable = db_manager.get_nullable_info(spark, table_name)
     iceberg_schema = spark.table(full_table_name).schema
@@ -132,14 +132,14 @@ def compare_nullable(
 
 def compare_primary_keys(
     spark: SparkSession,
-    config: Settings,
+    settings: Settings,
     db_manager: BaseDatabaseManager,
     table_name: str,
 ) -> None:
     """원천 DB PK와 Iceberg identifier fields 비교"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, config.database.type)
-    full_table_name = f"{config.CATALOG}.{bronze_schema}.{target_table}"
+    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
+    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
 
     source_pks = db_manager.get_primary_key(spark, table_name)
 
@@ -157,14 +157,14 @@ def compare_primary_keys(
 
 def sync_table_comment(
     spark: SparkSession,
-    config: Settings,
+    settings: Settings,
     db_manager: BaseDatabaseManager,
     table_name: str,
 ) -> None:
     """원천 DB 테이블 주석을 Iceberg 테이블에 동기화"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, config.database.type)
-    full_table_name = f"{config.CATALOG}.{bronze_schema}.{target_table}"
+    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
+    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
 
     comment = db_manager.get_table_comment(spark, table_name)
     if not comment:
@@ -189,7 +189,7 @@ def sync_table_comment(
 
 def process_schema_validate(
     spark: SparkSession,
-    config: Settings,
+    settings: Settings,
     db_manager: BaseDatabaseManager,
     table_name: str,
 ) -> None:
@@ -197,16 +197,16 @@ def process_schema_validate(
     logger = SparkLoggerManager().get_logger()
     logger.info(f"Starting schema validation for {table_name}")
 
-    compare_columns(spark, config, db_manager, table_name)
-    sync_column_comments(spark, config, db_manager, table_name)
-    compare_nullable(spark, config, db_manager, table_name)
-    compare_primary_keys(spark, config, db_manager, table_name)
-    sync_table_comment(spark, config, db_manager, table_name)
+    compare_columns(spark, settings, db_manager, table_name)
+    sync_column_comments(spark, settings, db_manager, table_name)
+    compare_nullable(spark, settings, db_manager, table_name)
+    compare_primary_keys(spark, settings, db_manager, table_name)
+    sync_table_comment(spark, settings, db_manager, table_name)
 
     logger.info(f"Schema validation completed for {table_name}")
 
 
-def main(spark: SparkSession, config: Settings, app_args) -> None:
+def main(spark: SparkSession, settings: Settings, app_args) -> None:
     """
     Validates source database schema against Iceberg and syncs comments.
     """
@@ -220,12 +220,12 @@ def main(spark: SparkSession, config: Settings, app_args) -> None:
 
     try:
         db_manager: BaseDatabaseManager
-        if config.database.type == "sqlserver":
-            db_manager = SQLServerManager(config)
+        if settings.database.type == "sqlserver":
+            db_manager = SQLServerManager(settings)
         else:
-            db_manager = MySQLManager(config)
+            db_manager = MySQLManager(settings)
 
-        process_schema_validate(spark, config, db_manager, table_name)
+        process_schema_validate(spark, settings, db_manager, table_name)
     except Exception as e:
         logger.error(f"Failed to validate schema for '{table_name}': {e}")
         raise e
