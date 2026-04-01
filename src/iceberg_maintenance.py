@@ -10,7 +10,7 @@ Iceberg Heavy Maintenance — remove_orphan_files + ops_bronze compaction + wate
 
 Airflow에서 spark-submit으로 실행:
   spark-submit --py-files utils.zip iceberg_maintenance.py \
-    --dag-id "di_maintenance_iceberg" \
+    --dag-id "maintenance_iceberg" \
     --schemas "store_bronze,ops_bronze"
 """
 
