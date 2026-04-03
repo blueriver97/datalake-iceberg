@@ -107,9 +107,21 @@ class BaseDatabaseManager(ABC):
     데이터베이스 관리를 위한 추상 베이스 클래스
     """
 
+    _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
     def __init__(self, settings):
         # 설정 객체 초기화
         self.settings = settings
+
+    @staticmethod
+    def _validate_identifier(name: str) -> str:
+        """SQL 식별자(스키마명, 테이블명 등)가 안전한 형식인지 검증합니다.
+
+        허용 형식: 영문자/숫자/밑줄만 포함, 첫 글자는 영문자 또는 밑줄.
+        """
+        if not BaseDatabaseManager._IDENTIFIER_RE.match(name):
+            raise ValueError(f"Invalid SQL identifier: {name!r}")
+        return name
 
     def _execute_jdbc_query(self, spark: SparkSession, options: dict[str, str], query: str) -> DataFrame:
         # JDBC 쿼리 실행 및 데이터프레임 반환
@@ -162,6 +174,13 @@ class MySQLManager(BaseDatabaseManager):
     MySQL 전용 관리 클래스
     """
 
+    def _parse_table_name(self, table_name: str) -> tuple[str, str]:
+        """'schema.table' 형식의 테이블명을 검증 후 (schema, table) 튜플로 반환합니다."""
+        parts = table_name.split(".")
+        if len(parts) != 2:
+            raise ValueError(f"MySQL table name must be 'schema.table' format, got: {table_name!r}")
+        return self._validate_identifier(parts[0]), self._validate_identifier(parts[1])
+
     def get_jdbc_options(self, database: str = "") -> dict[str, str]:
         # MySQL 연결 옵션 생성
         db = self.settings.database
@@ -174,11 +193,12 @@ class MySQLManager(BaseDatabaseManager):
         return options
 
     def get_primary_key(self, spark: SparkSession, table_name: str) -> list[str]:
+        schema, table = self._parse_table_name(table_name)
         options = self.get_jdbc_options()
         query = dedent(f"""
             SELECT COLUMN_NAME
             FROM information_schema.KEY_COLUMN_USAGE
-            WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) = '{table_name}' AND CONSTRAINT_NAME = 'PRIMARY'
+            WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}' AND CONSTRAINT_NAME = 'PRIMARY'
             ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
         """)
         df = self._execute_jdbc_query(spark, options, query)
@@ -186,6 +206,7 @@ class MySQLManager(BaseDatabaseManager):
 
     def get_partition_key(self, spark: SparkSession, table_name: str) -> str | None:
         # 분산 처리를 위한 파티션 키 자동 탐색 (Auto_increment 또는 숫자형 우선)
+        schema, table = self._parse_table_name(table_name)
         options = self.get_jdbc_options()
         query = dedent(f"""
             SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME
@@ -195,7 +216,7 @@ class MySQLManager(BaseDatabaseManager):
                             , MIN(ORDINAL_POSITION)                                                       AS min_ordinal
                             , MIN(CASE WHEN EXTRA = 'auto_increment' THEN ORDINAL_POSITION ELSE NULL END) AS extra_ordinal
                        FROM INFORMATION_SCHEMA.COLUMNS
-                       WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) = '{table_name}'
+                       WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
                               AND (DATA_TYPE IN ('int', 'bigint', 'date', 'datetime', 'timestamp') OR EXTRA LIKE 'auto_increment')
                        GROUP BY TABLE_SCHEMA, TABLE_NAME) AS t
                       ON c.TABLE_SCHEMA = t.TABLE_SCHEMA
@@ -209,55 +230,60 @@ class MySQLManager(BaseDatabaseManager):
 
     def get_schema(self, spark: SparkSession, table_name: str) -> dict[str, str]:
         # Spark 데이터 타입 매핑을 포함한 스키마 조회
+        schema, table = self._parse_table_name(table_name)
         options = self.get_jdbc_options()
         query = dedent(f"""
             SELECT COLUMN_NAME, COLUMN_TYPE
             FROM information_schema.COLUMNS
-            WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) = '{table_name}'
+            WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
             ORDER BY ORDINAL_POSITION
         """)
         df = self._execute_jdbc_query(spark, options, query)
         return OrderedDict([(row.COLUMN_NAME, row.COLUMN_TYPE) for row in df.collect()])
 
     def get_metadata(self, spark: SparkSession, table_name: str) -> dict[str, str]:
+        schema, table = self._parse_table_name(table_name)
         options = self.get_jdbc_options()
         query = dedent(f"""
             SELECT TABLE_ROWS
                  , ROUND(((data_length + index_length) / 1024.0 / 1024.0), 0) AS 'TABLE_SIZE'
             FROM information_schema.TABLES
-            WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) = '{table_name}'
+            WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
         """)
         df = self._execute_jdbc_query(spark, options, query)
         return {col.lower(): str(row[col]) for col in df.columns for row in df.collect()}
 
     def get_column_comments(self, spark: SparkSession, table_name: str) -> dict[str, str]:
+        schema, table = self._parse_table_name(table_name)
         options = self.get_jdbc_options()
         query = dedent(f"""
             SELECT COLUMN_NAME, COLUMN_COMMENT
             FROM information_schema.COLUMNS
-            WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) = '{table_name}'
+            WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
             ORDER BY ORDINAL_POSITION
         """)
         df = self._execute_jdbc_query(spark, options, query)
         return {row.COLUMN_NAME: row.COLUMN_COMMENT for row in df.collect()}
 
     def get_table_comment(self, spark: SparkSession, table_name: str) -> str | None:
+        schema, table = self._parse_table_name(table_name)
         options = self.get_jdbc_options()
         query = dedent(f"""
             SELECT TABLE_COMMENT
             FROM information_schema.TABLES
-            WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) = '{table_name}'
+            WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
         """)
         df = self._execute_jdbc_query(spark, options, query)
         row = df.first()
         return row.TABLE_COMMENT if row and row.TABLE_COMMENT else None
 
     def get_nullable_info(self, spark: SparkSession, table_name: str) -> dict[str, bool]:
+        schema, table = self._parse_table_name(table_name)
         options = self.get_jdbc_options()
         query = dedent(f"""
             SELECT COLUMN_NAME, IS_NULLABLE
             FROM information_schema.COLUMNS
-            WHERE CONCAT_WS('.', TABLE_SCHEMA, TABLE_NAME) = '{table_name}'
+            WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{table}'
             ORDER BY ORDINAL_POSITION
         """)
         df = self._execute_jdbc_query(spark, options, query)
@@ -268,6 +294,17 @@ class SQLServerManager(BaseDatabaseManager):
     """
     SQL Server 전용 관리 클래스
     """
+
+    def _parse_table_name(self, table_name: str) -> tuple[str, str, str]:
+        """'db.schema.table' 형식의 테이블명을 검증 후 (db, schema, table) 튜플로 반환합니다."""
+        parts = table_name.split(".")
+        if len(parts) != 3:
+            raise ValueError(f"SQL Server table name must be 'db.schema.table' format, got: {table_name!r}")
+        return (
+            self._validate_identifier(parts[0]),
+            self._validate_identifier(parts[1]),
+            self._validate_identifier(parts[2]),
+        )
 
     def get_jdbc_options(self, database: str | None = None) -> dict[str, str]:
         # MSSQL 연결 옵션 생성 (encrypt=false 기본값 설정)
@@ -283,14 +320,14 @@ class SQLServerManager(BaseDatabaseManager):
 
     def get_primary_key(self, spark: SparkSession, table_name: str) -> list[str]:
         # MSSQL PK 조회 (Catalog.Schema.Table 형식 대응)
-        db_name = table_name.split(".")[0]
+        db_name, db_schema, tbl = self._parse_table_name(table_name)
         options = self.get_jdbc_options(db_name)
         query = dedent(f"""
             SELECT t.TABLE_CATALOG AS TABLE_SCHEMA, t.TABLE_NAME, c.COLUMN_NAME, c.ORDINAL_POSITION
             FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS t
                 JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE c ON c.CONSTRAINT_NAME = t.CONSTRAINT_NAME
             WHERE t.CONSTRAINT_TYPE = 'PRIMARY KEY'
-              AND CONCAT(t.TABLE_CATALOG, '.dbo.', t.TABLE_NAME) = '{table_name}'
+              AND t.TABLE_CATALOG = '{db_name}' AND t.TABLE_SCHEMA = '{db_schema}' AND t.TABLE_NAME = '{tbl}'
         """)
         df = self._execute_jdbc_query(spark, options, query)
         df = df.sort("TABLE_SCHEMA", "TABLE_NAME", "ORDINAL_POSITION")
@@ -298,15 +335,15 @@ class SQLServerManager(BaseDatabaseManager):
 
     def get_partition_key(self, spark: SparkSession, table_name: str) -> str | None:
         # MSSQL IsIdentity 또는 날짜/숫자형 기반 파티션 키 탐색
-        db_name = table_name.split(".")[0]
+        db_name, db_schema, tbl = self._parse_table_name(table_name)
         options = self.get_jdbc_options(db_name)
         query = dedent(f"""
             SELECT TOP 1 c.COLUMN_NAME
             FROM INFORMATION_SCHEMA.COLUMNS AS c
-            WHERE CONCAT(TABLE_CATALOG, '.dbo.', TABLE_NAME) = '{table_name}'
+            WHERE c.TABLE_CATALOG = '{db_name}' AND c.TABLE_SCHEMA = '{db_schema}' AND c.TABLE_NAME = '{tbl}'
               AND (DATA_TYPE IN ('date', 'datetime', 'datetime2', 'timestamp') OR
-                   COLUMNPROPERTY(OBJECT_ID(CONCAT(TABLE_SCHEMA, '.', TABLE_NAME)), COLUMN_NAME, 'IsIdentity') = 1)
-            ORDER BY (CASE WHEN COLUMNPROPERTY(OBJECT_ID(CONCAT(TABLE_SCHEMA, '.', TABLE_NAME)), COLUMN_NAME, 'IsIdentity') = 1 THEN 0 ELSE 1 END),
+                   COLUMNPROPERTY(OBJECT_ID(CONCAT(c.TABLE_SCHEMA, '.', c.TABLE_NAME)), COLUMN_NAME, 'IsIdentity') = 1)
+            ORDER BY (CASE WHEN COLUMNPROPERTY(OBJECT_ID(CONCAT(c.TABLE_SCHEMA, '.', c.TABLE_NAME)), COLUMN_NAME, 'IsIdentity') = 1 THEN 0 ELSE 1 END),
                      ORDINAL_POSITION
         """)
         df = self._execute_jdbc_query(spark, options, query)
@@ -315,19 +352,19 @@ class SQLServerManager(BaseDatabaseManager):
 
     def get_schema(self, spark: SparkSession, table_name: str) -> dict[str, str]:
         # MSSQL 데이터 타입 조회 및 정렬
-        db_name = table_name.split(".")[0]
+        db_name, db_schema, tbl = self._parse_table_name(table_name)
         options = self.get_jdbc_options(db_name)
         query = dedent(f"""
             SELECT COLUMN_NAME, DATA_TYPE AS COLUMN_TYPE, ORDINAL_POSITION
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE CONCAT(TABLE_CATALOG, '.dbo.', TABLE_NAME) = '{table_name}'
+            WHERE TABLE_CATALOG = '{db_name}' AND TABLE_SCHEMA = '{db_schema}' AND TABLE_NAME = '{tbl}'
         """)
         df = self._execute_jdbc_query(spark, options, query)
         df = df.sort("ORDINAL_POSITION")
         return OrderedDict([(row.COLUMN_NAME, row.COLUMN_TYPE) for row in df.collect()])
 
     def get_metadata(self, spark: SparkSession, table_name: str) -> dict[str, str]:
-        db_name, _, tbl = table_name.split(".")
+        db_name, db_schema, tbl = self._parse_table_name(table_name)
         options = self.get_jdbc_options(db_name)
         query = dedent(f"""
             SELECT p.rows        AS TABLE_ROWS,
@@ -337,7 +374,7 @@ class SQLServerManager(BaseDatabaseManager):
             FROM sys.tables AS t
                      INNER JOIN sys.indexes AS i
                                 ON t.object_id = i.object_id
-                                    AND t.object_id = OBJECT_ID(CONCAT('dbo.', '{tbl}'))
+                                    AND t.object_id = OBJECT_ID(CONCAT('{db_schema}', '.', '{tbl}'))
                      INNER JOIN sys.partitions AS p
                                 ON i.object_id = p.object_id
                                     AND i.index_id = p.index_id
@@ -349,7 +386,7 @@ class SQLServerManager(BaseDatabaseManager):
         return {col.lower(): str(row[col]) for col in df.columns for row in df.collect()}
 
     def get_column_comments(self, spark: SparkSession, table_name: str) -> dict[str, str]:
-        db_name, _, tbl = table_name.split(".")
+        db_name, _db_schema, tbl = self._parse_table_name(table_name)
         options = self.get_jdbc_options(db_name)
         query = dedent(f"""
             SELECT c.name AS COLUMN_NAME,
@@ -367,7 +404,7 @@ class SQLServerManager(BaseDatabaseManager):
         return {row.COLUMN_NAME: (row.COLUMN_COMMENT or "") for row in df.collect()}
 
     def get_table_comment(self, spark: SparkSession, table_name: str) -> str | None:
-        db_name, _, tbl = table_name.split(".")
+        db_name, _db_schema, tbl = self._parse_table_name(table_name)
         options = self.get_jdbc_options(db_name)
         query = dedent(f"""
             SELECT CAST(ep.value AS NVARCHAR(4000)) AS TABLE_COMMENT
@@ -383,12 +420,12 @@ class SQLServerManager(BaseDatabaseManager):
         return row.TABLE_COMMENT if row and row.TABLE_COMMENT else None
 
     def get_nullable_info(self, spark: SparkSession, table_name: str) -> dict[str, bool]:
-        db_name = table_name.split(".")[0]
+        db_name, db_schema, tbl = self._parse_table_name(table_name)
         options = self.get_jdbc_options(db_name)
         query = dedent(f"""
             SELECT COLUMN_NAME, IS_NULLABLE
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE CONCAT(TABLE_CATALOG, '.dbo.', TABLE_NAME) = '{table_name}'
+            WHERE TABLE_CATALOG = '{db_name}' AND TABLE_SCHEMA = '{db_schema}' AND TABLE_NAME = '{tbl}'
             ORDER BY ORDINAL_POSITION
         """)
         df = self._execute_jdbc_query(spark, options, query)
