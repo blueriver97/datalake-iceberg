@@ -257,7 +257,7 @@ def run_orphan_cleanup(
     logger = SparkLoggerManager().get_logger()
     _prefix, bronze_schema, table_name = full_table_name.split(".")
 
-    older_than_ts = (datetime.now(UTC) - timedelta(days=orphan_older_than_days)).strftime("%Y-%m-%d %H:%M:+%S")
+    older_than_ts = (datetime.now(UTC) - timedelta(days=orphan_older_than_days)).strftime("%Y-%m-%d %H:%M:%S")
 
     wall_start = datetime.now(UTC)
     mono_start = time.monotonic()

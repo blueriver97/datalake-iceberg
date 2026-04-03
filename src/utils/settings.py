@@ -31,7 +31,6 @@ class StorageSettings(BaseModel):
 class KafkaSettings(BaseModel):
     bootstrap_servers: str = Field(description="Kafka bootstrap servers")
     schema_registry: str = Field(description="Kafka schema registry URL")
-    topic_prefix: str = Field(description="Kafka topic prefix")
     metric_namespace: str = Field(description="Kafka metric namespace")
     max_offsets_per_trigger: int = Field(description="Maximum number of offsets to fetch per trigger")
     starting_offsets: str = Field(description="Kafka starting offsets (earliest, latest)")
