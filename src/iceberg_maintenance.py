@@ -19,6 +19,7 @@ from pyspark.sql import SparkSession
 
 from utils.maintenance import run_compaction, run_orphan_cleanup
 from utils.settings import Settings
+from utils.spark_config import create_spark_session
 from utils.spark_logging import SparkLoggerManager
 from utils.watermark import ensure_watermark_tables, purge_watermarks
 
@@ -56,22 +57,7 @@ if __name__ == "__main__":
     settings = Settings(_env_file=args.env_file)
     dag_id = args.dag_id
 
-    spark = (
-        SparkSession.builder.appName("iceberg_maintenance")
-        .config("spark.sql.defaultCatalog", settings.CATALOG)
-        .config(f"spark.sql.catalog.{settings.CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.WAREHOUSE)
-        .config(f"spark.sql.catalog.{settings.CATALOG}.s3.path-style-access", "true")
-        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-        .config(
-            "spark.hadoop.fs.s3a.aws.credentials.provider",
-            "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-        )
-        .config("spark.sql.session.timeZone", "UTC")
-        .getOrCreate()
-    )
+    spark = create_spark_session("iceberg_maintenance", settings)
 
     logger_manager = SparkLoggerManager()
     logger_manager.setup(spark)

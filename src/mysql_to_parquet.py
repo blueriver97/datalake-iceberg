@@ -18,6 +18,7 @@ from utils.cleansing import trim_string_columns
 from utils.database import BaseDatabaseManager, MySQLManager
 from utils.jdbc_reader import read_jdbc_table
 from utils.settings import Settings
+from utils.spark_config import create_spark_session
 from utils.spark_logging import SparkLoggerManager
 
 
@@ -90,24 +91,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     settings = Settings(_env_file=args.env_file)
 
-    spark = (
-        SparkSession.builder.appName("mysql_to_parquet")
-        .config("spark.sql.defaultCatalog", settings.CATALOG)
-        .config(f"spark.sql.catalog.{settings.CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.WAREHOUSE)
-        .config(f"spark.sql.catalog.{settings.CATALOG}.s3.path-style-access", "true")
-        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-        .config(
-            "spark.hadoop.fs.s3a.aws.credentials.provider",
-            "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-        )
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.parquet.datetimeRebaseModeInWrite", "CORRECTED")
-        .config("spark.sql.parquet.int96RebaseModeInWrite", "CORRECTED")
-        .config("spark.sql.optimizer.excludedRules", "org.apache.spark.sql.catalyst.optimizer.SimplifyCasts")
-        .getOrCreate()
+    spark = create_spark_session(
+        "mysql_to_parquet",
+        settings,
+        extra_configs={
+            "spark.sql.parquet.datetimeRebaseModeInWrite": "CORRECTED",
+            "spark.sql.parquet.int96RebaseModeInWrite": "CORRECTED",
+            "spark.sql.optimizer.excludedRules": "org.apache.spark.sql.catalyst.optimizer.SimplifyCasts",
+        },
     )
 
     main(spark, settings, args)

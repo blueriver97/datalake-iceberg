@@ -32,6 +32,7 @@ from pyspark.sql.streaming import StreamingQuery
 from utils.listener import BatchProgressListener
 from utils.settings import Settings
 from utils.signal import build_signal_path, check_stop_signal, cleanup_stop_signal
+from utils.spark_config import create_spark_session
 from utils.spark_logging import SparkLoggerManager
 
 # ---------------------------------------------------------------------------
@@ -187,22 +188,13 @@ if __name__ == "__main__":
     default_partition = [c.strip() for c in args.partition_by.split(",")]
     partition_rules: dict[str, str] = json.loads(args.partition_rules) if args.partition_rules else {}
 
-    spark = (
-        SparkSession.builder.appName("kafka_to_s3")
-        .config("spark.sql.defaultCatalog", settings.CATALOG)
-        .config(f"spark.sql.catalog.{settings.CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.WAREHOUSE)
-        .config(f"spark.sql.catalog.{settings.CATALOG}.s3.path-style-access", "true")
-        .config(
-            "spark.hadoop.fs.s3a.aws.credentials.provider",
-            "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-        )
-        .config("spark.sql.caseSensitive", "true")
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.scheduler.mode", "FAIR")
-        .getOrCreate()
+    spark = create_spark_session(
+        "kafka_to_s3",
+        settings,
+        extra_configs={
+            "spark.sql.caseSensitive": "true",
+            "spark.scheduler.mode": "FAIR",
+        },
     )
 
     # 로거 초기화

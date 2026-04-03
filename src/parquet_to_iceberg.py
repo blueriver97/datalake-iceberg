@@ -20,6 +20,7 @@ from utils.cleansing import trim_string_columns
 from utils.database import BaseDatabaseManager, MySQLManager, SQLServerManager
 from utils.iceberg import create_or_replace_iceberg_table
 from utils.settings import Settings
+from utils.spark_config import create_spark_session
 from utils.spark_logging import SparkLoggerManager
 
 
@@ -119,24 +120,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
     settings = Settings(_env_file=args.env_file)
 
-    spark = (
-        SparkSession.builder.appName("parquet_to_iceberg")
-        .config("spark.sql.defaultCatalog", settings.CATALOG)
-        .config(f"spark.sql.catalog.{settings.CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.WAREHOUSE)
-        .config(f"spark.sql.catalog.{settings.CATALOG}.s3.path-style-access", "true")
-        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-        .config(
-            "spark.hadoop.fs.s3a.aws.credentials.provider",
-            "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-        )
-        .config("spark.sql.session.timeZone", "UTC")
-        .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED")
-        .config("spark.sql.parquet.int96RebaseModeInRead", "CORRECTED")
-        .config("spark.sql.optimizer.excludedRules", "org.apache.spark.sql.catalyst.optimizer.SimplifyCasts")
-        .getOrCreate()
+    spark = create_spark_session(
+        "parquet_to_iceberg",
+        settings,
+        extra_configs={
+            "spark.sql.parquet.datetimeRebaseModeInRead": "CORRECTED",
+            "spark.sql.parquet.int96RebaseModeInRead": "CORRECTED",
+            "spark.sql.optimizer.excludedRules": "org.apache.spark.sql.catalyst.optimizer.SimplifyCasts",
+        },
     )
 
     main(spark, settings, args)

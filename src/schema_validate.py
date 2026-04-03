@@ -16,6 +16,7 @@ from pyspark.sql import SparkSession
 # --- Import common modules ---
 from utils.database import BaseDatabaseManager, MySQLManager, SQLServerManager, convert_db_type_to_spark
 from utils.settings import Settings
+from utils.spark_config import create_spark_session
 from utils.spark_logging import SparkLoggerManager
 
 # Iceberg가 자동 추가하는 메타 컬럼 (비교 대상에서 제외)
@@ -251,22 +252,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     settings = Settings(_env_file=args.env_file)
 
-    spark = (
-        SparkSession.builder.appName("schema_validate")
-        .config("spark.sql.defaultCatalog", settings.CATALOG)
-        .config(f"spark.sql.catalog.{settings.CATALOG}", "org.apache.iceberg.spark.SparkCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.catalog-impl", "org.apache.iceberg.aws.glue.GlueCatalog")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.io-impl", "org.apache.iceberg.aws.s3.S3FileIO")
-        .config(f"spark.sql.catalog.{settings.CATALOG}.warehouse", settings.WAREHOUSE)
-        .config(f"spark.sql.catalog.{settings.CATALOG}.s3.path-style-access", "true")
-        .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
-        .config(
-            "spark.hadoop.fs.s3a.aws.credentials.provider",
-            "software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider",
-        )
-        .config("spark.sql.session.timeZone", "UTC")
-        .getOrCreate()
-    )
+    spark = create_spark_session("schema_validate", settings)
 
     main(spark, settings, args)
     spark.stop()
