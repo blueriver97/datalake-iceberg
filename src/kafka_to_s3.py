@@ -29,11 +29,9 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.streaming import StreamingQuery
 
-from utils.listener import BatchProgressListener
 from utils.settings import Settings
-from utils.signal import build_signal_path, check_stop_signal, cleanup_stop_signal
-from utils.spark_config import create_spark_session
-from utils.spark_logging import SparkLoggerManager
+from utils.signal import BatchProgressListener, build_signal_path, check_stop_signal, cleanup_stop_signal
+from utils.spark import SparkLoggerManager, create_spark_session
 
 # ---------------------------------------------------------------------------
 # Partition

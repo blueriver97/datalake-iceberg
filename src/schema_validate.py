@@ -16,8 +16,7 @@ from pyspark.sql import SparkSession
 # --- Import common modules ---
 from utils.database import BaseDatabaseManager, MySQLManager, SQLServerManager, convert_db_type_to_spark
 from utils.settings import Settings
-from utils.spark_config import create_spark_session
-from utils.spark_logging import SparkLoggerManager
+from utils.spark import SparkLoggerManager, create_spark_session
 
 # Iceberg가 자동 추가하는 메타 컬럼 (비교 대상에서 제외)
 ICEBERG_META_COLUMNS = {"last_applied_date", "id_iceberg"}

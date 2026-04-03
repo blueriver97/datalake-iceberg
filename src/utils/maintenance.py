@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from pyspark.sql import SparkSession
 
-from utils.spark_logging import SparkLoggerManager
+from utils.spark import SparkLoggerManager
 from utils.watermark import append_maintenance_watermark
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ from pyspark.sql.avro.functions import from_avro
 
 from utils.maintenance import ProcessedTableTracker, run_position_delete_compaction
 from utils.settings import Settings
-from utils.spark_logging import SparkLoggerManager
+from utils.spark import SparkLoggerManager
 from utils.watermark import append_cdc_watermark, should_run
 
 # ---------------------------------------------------------------------------

@@ -15,13 +15,12 @@ import pyspark.sql.functions as F
 import pyspark.sql.types as T
 from pyspark.sql import DataFrame, SparkSession
 
-# --- Import common modules ---
-from utils.cleansing import trim_string_columns
 from utils.database import BaseDatabaseManager, MySQLManager, SQLServerManager
-from utils.iceberg import create_or_replace_iceberg_table
+
+# --- Import common modules ---
+from utils.iceberg import create_or_replace_iceberg_table, trim_string_columns
 from utils.settings import Settings
-from utils.spark_config import create_spark_session
-from utils.spark_logging import SparkLoggerManager
+from utils.spark import SparkLoggerManager, create_spark_session
 
 
 def convert_timestamps_to_utc(df: DataFrame) -> DataFrame:

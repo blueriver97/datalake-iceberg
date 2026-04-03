@@ -13,13 +13,12 @@ import argparse
 import pyspark.sql.functions as F
 from pyspark.sql import SparkSession
 
+from utils.database import BaseDatabaseManager, SQLServerManager, read_jdbc_table
+
 # --- Import common modules ---
-from utils.cleansing import trim_string_columns
-from utils.database import BaseDatabaseManager, SQLServerManager
-from utils.jdbc_reader import read_jdbc_table
+from utils.iceberg import trim_string_columns
 from utils.settings import Settings
-from utils.spark_config import create_spark_session
-from utils.spark_logging import SparkLoggerManager
+from utils.spark import SparkLoggerManager, create_spark_session
 
 
 def process_sqlserver_to_parquet(

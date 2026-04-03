@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 from pyspark.sql import SparkSession
 
-from utils.spark_logging import SparkLoggerManager
+from utils.spark import SparkLoggerManager
 
 # ---------------------------------------------------------------------------
 # Table Setup

@@ -19,8 +19,7 @@ from pyspark.sql import SparkSession
 
 from utils.maintenance import run_compaction, run_orphan_cleanup
 from utils.settings import Settings
-from utils.spark_config import create_spark_session
-from utils.spark_logging import SparkLoggerManager
+from utils.spark import SparkLoggerManager, create_spark_session
 from utils.watermark import ensure_watermark_tables, purge_watermarks
 
 OPS_WATERMARK_TABLES = [
