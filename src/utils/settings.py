@@ -15,10 +15,10 @@ class VaultSettings(BaseModel):
 
 class DatabaseSettings(BaseModel):
     type: str = Field(description="Database type (mysql, sqlserver)")
-    host: str = Field(default="", description="Database host address")
-    port: int = Field(default=3306, description="Database port number")
-    user: str = Field(default="", description="Database username")
-    password: SecretStr = Field(default=SecretStr(""), description="Database password")
+    host: str = Field(description="Database host address")
+    port: int = Field(description="Database port number")
+    user: str = Field(description="Database username")
+    password: SecretStr = Field(description="Database password")
 
 
 class StorageSettings(BaseModel):
@@ -70,7 +70,7 @@ class VaultSettingsSource(PydanticBaseSettingsSource):
             }
         except Exception as e:
             print(f"An error occurred during Vault initialization: {e}")
-            return {}
+            raise e
 
     def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
         return super().get_field_value(field, field_name)
