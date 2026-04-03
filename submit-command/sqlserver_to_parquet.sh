@@ -16,7 +16,7 @@ for TABLE in "${TABLES[@]}"; do
     --deploy-mode cluster \
     --name "glue_sqlserver_to_parquet.${TABLE}" \
     --py-files utils.zip \
-    --files mssql_to_parquet.env#.env \
+    --files sqlserver_to_parquet.env#.env \
     --conf spark.yarn.maxAppAttempts=1 \
     --conf spark.yarn.appMasterEnv.AWS_PROFILE=default \
     --conf spark.executorEnv.AWS_PROFILE=default \
@@ -25,7 +25,7 @@ for TABLE in "${TABLES[@]}"; do
     --conf spark.executor.cores=1 \
     --conf spark.executor.memory=1G \
     --conf spark.executor.instances=1 \
-    mssql_to_parquet.py \
+    sqlserver_to_parquet.py \
     --table "${TABLE}" \
     --num_partition "${NUM_PARTITION}"
 done

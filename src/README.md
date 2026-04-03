@@ -59,7 +59,7 @@ spark-submit --py-files utils.zip sqlserver_to_iceberg.py \
   --table "db.dbo.table_name" --num_partition 8 --env-file .env
 ```
 
-### mysql_to_parquet.py / mssql_to_parquet.py
+### mysql_to_parquet.py / sqlserver_to_parquet.py
 
 JDBC → S3 Parquet 배치 적재. Iceberg 대신 S3에 Parquet 포맷으로 직접 저장합니다.
 
@@ -69,13 +69,13 @@ spark-submit --py-files utils.zip mysql_to_parquet.py \
   --table "db.table_name" --num_partition 8 --env-file .env
 
 # SQL Server
-spark-submit --py-files utils.zip mssql_to_parquet.py \
+spark-submit --py-files utils.zip sqlserver_to_parquet.py \
   --table "db.dbo.table_name" --num_partition 8 --env-file .env
 ```
 
 ### parquet_to_iceberg.py
 
-S3 Parquet → Iceberg 배치 적재. S3의 Parquet 파일을 읽어 Iceberg 테이블로 적재합니다. `mysql_to_parquet` / `mssql_to_parquet`의 후속 단계로 사용됩니다.
+S3 Parquet → Iceberg 배치 적재. S3의 Parquet 파일을 읽어 Iceberg 테이블로 적재합니다. `mysql_to_parquet` / `sqlserver_to_parquet`의 후속 단계로 사용됩니다.
 
 ```bash
 spark-submit --py-files utils.zip parquet_to_iceberg.py \

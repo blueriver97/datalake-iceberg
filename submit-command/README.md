@@ -11,7 +11,7 @@ submit-command/
 │   ├── mysql_to_iceberg.env
 │   ├── sqlserver_to_iceberg.env
 │   ├── mysql_to_parquet.env
-│   ├── mssql_to_parquet.env
+│   ├── sqlserver_to_parquet.env
 │   ├── parquet_to_iceberg.env
 │   ├── schema_validate.env
 │   └── iceberg_maintenance.env
@@ -67,7 +67,7 @@ STORAGE__BUCKET=your-bucket
 STORAGE__DATA_PATH=/iceberg
 ```
 
-#### Parquet 적재 (mysql_to_parquet, mssql_to_parquet, parquet_to_iceberg)
+#### Parquet 적재 (mysql_to_parquet, sqlserver_to_parquet, parquet_to_iceberg)
 
 위 항목과 동일하되, `DATA_PATH`를 Parquet 저장 경로로 설정:
 

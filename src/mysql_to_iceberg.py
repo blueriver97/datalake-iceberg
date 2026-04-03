@@ -11,12 +11,13 @@ JDBC로 MySQL 테이블을 읽어 Iceberg 테이블로 전체 교체(RTAS)한다
 import argparse
 
 import pyspark.sql.functions as F
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import SparkSession
 
 # --- Import common modules ---
 from utils.cleansing import trim_string_columns
 from utils.database import BaseDatabaseManager, MySQLManager
 from utils.iceberg import create_or_replace_iceberg_table
+from utils.jdbc_reader import read_jdbc_table
 from utils.settings import Settings
 from utils.spark_logging import SparkLoggerManager
 
@@ -38,8 +39,6 @@ def process_mysql_to_iceberg(
         table_name (str): 대상 테이블 명 (db.table)
         num_partition (int): 파티션 개수
     """
-    logger = SparkLoggerManager().get_logger()
-
     # MySQL table name format (db.table) parsing
     parts = table_name.split(".")
     if len(parts) == 2:
@@ -51,35 +50,7 @@ def process_mysql_to_iceberg(
     target_table = table.lower()
 
     pk_cols = db_manager.get_primary_key(spark, table_name)
-    partition_column = db_manager.get_partition_key(spark, table_name)
-    jdbc_options = db_manager.get_jdbc_options(database=schema)
-    jdbc_df: DataFrame
-
-    if partition_column:
-        logger.info(f"Reading '{table_name}' with partitioning on column '{partition_column}'.")
-        bound_query = f"SELECT min({partition_column}) as `lower`, max({partition_column}) as `upper` FROM {table_name}"
-        bound_df = spark.read.format("jdbc").options(**jdbc_options).option("query", bound_query).load()
-        bounds = bound_df.first()
-
-        if not bounds or bounds["lower"] is None:
-            logger.warn(
-                f"Partition column '{partition_column}' has no data for table '{table_name}'. Reading without partitioning."
-            )
-            jdbc_df = spark.read.format("jdbc").options(**jdbc_options).option("dbtable", table_name).load()
-        else:
-            jdbc_df = (
-                spark.read.format("jdbc")
-                .options(**jdbc_options)
-                .option("dbtable", table_name)
-                .option("partitionColumn", partition_column)
-                .option("lowerBound", bounds["lower"])
-                .option("upperBound", bounds["upper"])
-                .option("numPartitions", num_partition)
-                .load()
-            )
-    else:
-        logger.info(f"Reading '{table_name}' without partitioning.")
-        jdbc_df = spark.read.format("jdbc").options(**jdbc_options).option("dbtable", table_name).load()
+    jdbc_df = read_jdbc_table(spark, db_manager, table_name, num_partition, database=schema)
 
     jdbc_df = trim_string_columns(jdbc_df)
     jdbc_df = jdbc_df.withColumn("last_applied_date", F.current_timestamp())

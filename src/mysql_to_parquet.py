@@ -11,11 +11,12 @@ JDBC로 MySQL 테이블을 읽어 S3에 Parquet 파일로 저장한다.
 import argparse
 
 import pyspark.sql.functions as F
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import SparkSession
 
 # --- Import common modules ---
 from utils.cleansing import trim_string_columns
 from utils.database import BaseDatabaseManager, MySQLManager
+from utils.jdbc_reader import read_jdbc_table
 from utils.settings import Settings
 from utils.spark_logging import SparkLoggerManager
 
@@ -48,35 +49,7 @@ def process_mysql_to_parquet(
 
     output_path = f"{settings.WAREHOUSE}/{schema}/{table}"
 
-    partition_column = db_manager.get_partition_key(spark, table_name)
-    jdbc_options = db_manager.get_jdbc_options(database=schema)
-    jdbc_df: DataFrame
-
-    if partition_column:
-        logger.info(f"Reading '{table_name}' with partitioning on column '{partition_column}'.")
-        bound_query = f"SELECT min({partition_column}) as `lower`, max({partition_column}) as `upper` FROM {table_name}"
-        bound_df = spark.read.format("jdbc").options(**jdbc_options).option("query", bound_query).load()
-        bounds = bound_df.first()
-
-        if not bounds or bounds["lower"] is None:
-            logger.warn(
-                f"Partition column '{partition_column}' has no data for table '{table_name}'. Reading without partitioning."
-            )
-            jdbc_df = spark.read.format("jdbc").options(**jdbc_options).option("dbtable", table_name).load()
-        else:
-            jdbc_df = (
-                spark.read.format("jdbc")
-                .options(**jdbc_options)
-                .option("dbtable", table_name)
-                .option("partitionColumn", partition_column)
-                .option("lowerBound", bounds["lower"])
-                .option("upperBound", bounds["upper"])
-                .option("numPartitions", num_partition)
-                .load()
-            )
-    else:
-        logger.info(f"Reading '{table_name}' without partitioning.")
-        jdbc_df = spark.read.format("jdbc").options(**jdbc_options).option("dbtable", table_name).load()
+    jdbc_df = read_jdbc_table(spark, db_manager, table_name, num_partition, database=schema)
 
     jdbc_df = trim_string_columns(jdbc_df)
     jdbc_df = jdbc_df.withColumn("update_ts_dms", F.current_timestamp())

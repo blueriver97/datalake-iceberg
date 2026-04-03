@@ -2,7 +2,7 @@
 S3 Parquet → Iceberg 배치 적재 파이프라인
 
 S3에 저장된 Parquet 파일을 읽어 Iceberg 테이블로 생성한다.
-mysql_to_parquet / mssql_to_parquet의 후속 단계로 사용된다.
+mysql_to_parquet / sqlserver_to_parquet의 후속 단계로 사용된다.
 
 실행:
   spark-submit --py-files utils.zip parquet_to_iceberg.py \
