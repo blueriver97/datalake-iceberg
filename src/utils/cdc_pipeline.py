@@ -149,6 +149,107 @@ class PipelineContext:
 # ---------------------------------------------------------------------------
 
 
+def _transform_and_dedup(
+    spark: SparkSession,
+    schema_filtered_df: DataFrame,
+    key_schema_str: str,
+    value_schema_str: str,
+    debezium_schema: dict,
+    pk_cols: list[str],
+    full_table_name: str,
+) -> tuple[DataFrame, DataFrame] | None:
+    """Avro 역직렬화 → Debezium 타입 캐스팅 → 중복 제거 → (upsert_df, delete_df) 반환.
+
+    Iceberg 테이블이 존재하지 않으면 None을 반환한다.
+    """
+    logger = SparkLoggerManager().get_logger()
+
+    transformed_df = (
+        schema_filtered_df.withColumn("key", from_avro(F.col("key"), key_schema_str, {"mode": "FAILFAST"}))
+        .withColumn("value", from_avro(F.col("value"), value_schema_str, {"mode": "FAILFAST"}))
+        .withColumn(
+            "id_iceberg",
+            F.md5(F.concat_ws("|", *[cast_column(F.col(f"key.{c}"), debezium_schema.get(c, "")) for c in pk_cols])),
+        )
+        .select(
+            "value.after.*",
+            F.col("value.op").alias("__op"),
+            F.col("offset").alias("__offset"),
+            F.timestamp_millis(F.col("value.ts_ms")).alias("last_applied_date"),
+            "id_iceberg",
+        )
+    )
+
+    try:
+        catalog_schema = spark.table(full_table_name).schema
+    except Exception:
+        logger.warn(f"Table {full_table_name} not found. Skipping.")
+        return None
+
+    cdc_df = transformed_df.select(
+        *[
+            cast_column(F.col(f.name), debezium_schema.get(f.name, "")).cast(f.dataType).alias(f.name)
+            for f in catalog_schema.fields
+        ],
+        "__op",
+        "__offset",
+    )
+
+    window_spec = Window.partitionBy("id_iceberg").orderBy(F.desc("__offset"))
+    dedup_df = (
+        cdc_df.withColumn("__row", F.row_number().over(window_spec))
+        .filter(F.col("__row") == 1)
+        .drop("__row", "__offset")
+    )
+
+    upsert_df = dedup_df.filter(F.col("__op") != "d").drop("__op")
+    delete_df = dedup_df.filter(F.col("__op") == "d").drop("__op")
+    return upsert_df, delete_df
+
+
+def _apply_cdc_changes(
+    spark: SparkSession,
+    full_table_name: str,
+    view_suffix: str,
+    upsert_df: DataFrame,
+    delete_df: DataFrame,
+) -> None:
+    """upsert_df에 대해 MERGE INTO, delete_df에 대해 DELETE를 실행한다."""
+    logger = SparkLoggerManager().get_logger()
+
+    if not upsert_df.isEmpty():
+        view_name = f"upsert_view_{view_suffix}"
+        upsert_df.createOrReplaceGlobalTempView(view_name)
+        columns = upsert_df.columns
+        update_expr = ", ".join([f"t.{c} = s.{c}" for c in columns])
+        insert_cols = ", ".join(columns)
+        insert_vals = ", ".join([f"s.{c}" for c in columns])
+        logger.info(f"Executing Merge Into for {full_table_name}")
+        spark.sql(
+            dedent(f"""
+            MERGE INTO {full_table_name} t
+            USING (SELECT * FROM global_temp.{view_name}) s
+            ON t.id_iceberg = s.id_iceberg
+            WHEN MATCHED THEN UPDATE SET {update_expr}
+            WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})
+        """)
+        )
+
+    if not delete_df.isEmpty():
+        view_name = f"delete_view_{view_suffix}"
+        delete_df.createOrReplaceGlobalTempView(view_name)
+        logger.info(f"Executing Delete for {full_table_name}")
+        spark.sql(
+            dedent(f"""
+            DELETE FROM {full_table_name} t
+            WHERE EXISTS (
+                SELECT s.id_iceberg FROM global_temp.{view_name} s
+                WHERE s.id_iceberg = t.id_iceberg
+            )
+        """)
+        )
+
+
 def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> None:
     spark = ctx.spark
     logger = SparkLoggerManager().get_logger()
@@ -191,81 +292,20 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
         key_schema = json.loads(key_schema_str)
         pk_cols = [field["name"] for field in key_schema["fields"]]
 
-        # Avro 역직렬화 및 변환
-        transformed_df = (
-            schema_filtered_df.withColumn("key", from_avro(F.col("key"), key_schema_str, {"mode": "FAILFAST"}))
-            .withColumn("value", from_avro(F.col("value"), value_schema_str, {"mode": "FAILFAST"}))
-            .withColumn(
-                "id_iceberg",
-                F.md5(F.concat_ws("|", *[cast_column(F.col(f"key.{c}"), debezium_schema.get(c, "")) for c in pk_cols])),
-            )
-            .select(
-                "value.after.*",
-                F.col("value.op").alias("__op"),
-                F.col("offset").alias("__offset"),
-                F.timestamp_millis(F.col("value.ts_ms")).alias("last_applied_date"),
-                "id_iceberg",
-            )
+        result = _transform_and_dedup(
+            spark,
+            schema_filtered_df,
+            key_schema_str,
+            value_schema_str,
+            debezium_schema,
+            pk_cols,
+            full_table_name,
         )
-
-        # Iceberg 테이블 스키마 조회 및 캐스팅
-        try:
-            catalog_schema = spark.table(full_table_name).schema
-        except Exception:
-            logger.warn(f"Table {full_table_name} not found. Skipping.")
+        if result is None:
             continue
 
-        cdc_df = transformed_df.select(
-            *[
-                cast_column(F.col(f.name), debezium_schema.get(f.name, "")).cast(f.dataType).alias(f.name)
-                for f in catalog_schema.fields
-            ],
-            "__op",
-            "__offset",
-        )
-
-        # 중복 제거 (동일 키에 대해 최신 오프셋만 유지)
-        window_spec = Window.partitionBy("id_iceberg").orderBy(F.desc("__offset"))
-        dedup_df = (
-            cdc_df.withColumn("__row", F.row_number().over(window_spec))
-            .filter(F.col("__row") == 1)
-            .drop("__row", "__offset")
-        )
-
-        upsert_df = dedup_df.filter(F.col("__op") != "d").drop("__op")
-        delete_df = dedup_df.filter(F.col("__op") == "d").drop("__op")
-
-        # Upsert (Merge Into)
-        if not upsert_df.isEmpty():
-            upsert_df.createOrReplaceGlobalTempView(f"upsert_view_{table}")
-            columns = upsert_df.columns
-            update_expr = ", ".join([f"t.{c} = s.{c}" for c in columns])
-            insert_cols = ", ".join(columns)
-            insert_vals = ", ".join([f"s.{c}" for c in columns])
-            logger.info(f"Executing Merge Into for {full_table_name}")
-            spark.sql(
-                dedent(f"""
-                MERGE INTO {full_table_name} t
-                USING (SELECT * FROM global_temp.upsert_view_{table}) s
-                ON t.id_iceberg = s.id_iceberg
-                WHEN MATCHED THEN UPDATE SET {update_expr}
-                WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})
-            """)
-            )
-
-        # Delete
-        if not delete_df.isEmpty():
-            delete_df.createOrReplaceGlobalTempView(f"delete_view_{table}")
-            logger.info(f"Executing Delete for {full_table_name}")
-            spark.sql(
-                dedent(f"""
-                DELETE FROM {full_table_name} t
-                WHERE EXISTS (
-                    SELECT s.id_iceberg FROM global_temp.delete_view_{table} s
-                    WHERE s.id_iceberg = t.id_iceberg
-                )
-            """)
-            )
+        upsert_df, delete_df = result
+        _apply_cdc_changes(spark, full_table_name, table, upsert_df, delete_df)
 
     # 수정된 테이블 추적
     if ctx.tracker is not None:
