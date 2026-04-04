@@ -6,11 +6,15 @@ Watermark 유틸리티 — 파이프라인/유지보수 진행 상태 추적
 - 테이블 생성, 조회, 정리(purge) 포함
 """
 
+import threading
 from datetime import UTC, datetime
 
 from pyspark.sql import SparkSession
 
 from utils.spark import SparkLoggerManager
+
+_cdc_watermark_lock = threading.Lock()
+_maintenance_watermark_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Table Setup
@@ -186,7 +190,8 @@ def append_cdc_watermark(
         processing_duration_sec,
         scheduled_at,
     )
-    spark.sql(f"INSERT INTO {catalog}.ops_bronze.cdc_watermark {values}")
+    with _cdc_watermark_lock:
+        spark.sql(f"INSERT INTO {catalog}.ops_bronze.cdc_watermark {values}")
     _log_cdc(bronze_schema, table_name, event_count, max_event_ts, min_offset, max_offset, processing_duration_sec)
 
 
@@ -346,7 +351,8 @@ def append_maintenance_watermark(
         added_files_count,
         batch_id,
     )
-    spark.sql(f"INSERT INTO {catalog}.ops_bronze.maintenance_watermark {values}")
+    with _maintenance_watermark_lock:
+        spark.sql(f"INSERT INTO {catalog}.ops_bronze.maintenance_watermark {values}")
     _log_maintenance(bronze_schema, table_name, procedure_type, status, duration_sec)
 
 
