@@ -21,6 +21,7 @@ import threading
 import time
 from argparse import ArgumentParser
 
+from py4j.java_gateway import java_import
 from pyspark import InheritableThread
 from pyspark.sql import SparkSession
 
@@ -93,6 +94,17 @@ def _run_one_round(
         t.join()
 
     return round_exceptions
+
+
+def _flush_filesystem_cache(spark: SparkSession) -> None:
+    """Hadoop FileSystem 캐시를 flush하여 깨진 S3Client를 정리한다.
+
+    장기 실행 시 AWS SDK 내부의 ScheduledThreadPoolExecutor가 비정상 shutdown되면
+    캐시된 S3AFileSystem이 죽은 S3Client를 계속 재사용하게 된다.
+    캐시를 비우면 다음 S3 접근 시 새 S3AFileSystem → 새 S3Client가 생성된다.
+    """
+    java_import(spark._jvm, "org.apache.hadoop.fs.FileSystem")
+    spark._jvm.FileSystem.closeAll()
 
 
 def _interruptible_sleep(spark: SparkSession, stop_signal_path: str, seconds: float) -> bool:
@@ -195,6 +207,8 @@ if __name__ == "__main__":
         f"concurrency={args.concurrency}, round_interval={args.round_interval}s"
     )
 
+    max_consecutive_failures = 3
+    consecutive_failures = 0
     round_number = 0
     while not check_stop_signal(spark, stop_signal_path):
         round_number += 1
@@ -226,10 +240,23 @@ if __name__ == "__main__":
         )
 
         if exceptions:
-            logger.error(f"Round {round_number} had {len(exceptions)} error(s). Exiting.")
-            cleanup_stop_signal(spark, stop_signal_path)
-            spark.stop()
-            sys.exit(1)
+            consecutive_failures += 1
+            logger.error(
+                f"Round {round_number} had {len(exceptions)} error(s). "
+                f"Consecutive failures: {consecutive_failures}/{max_consecutive_failures}"
+            )
+            if consecutive_failures >= max_consecutive_failures:
+                logger.error("Too many consecutive failures. Exiting.")
+                cleanup_stop_signal(spark, stop_signal_path)
+                spark.stop()
+                sys.exit(1)
+            logger.warn("Flushing Hadoop FileSystem cache to recover stale S3 client.")
+            _flush_filesystem_cache(spark)
+            continue
+        else:
+            if consecutive_failures > 0:
+                logger.info(f"Round {round_number} succeeded. Resetting consecutive failure count.")
+            consecutive_failures = 0
 
         # --- Compaction phase (라운드 내 모든 스레드 완료 후) ---
         modified_tables = tracker.get_and_clear()

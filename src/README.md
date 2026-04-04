@@ -28,6 +28,14 @@ spark-submit --py-files utils.zip kafka_to_iceberg_stream.py \
   --concurrency 3 --round-interval 300 --env-file .env
 ```
 
+**장기 실행 시 S3 client 장애 복구**
+
+장기 실행 시 Hadoop `FileSystem.CACHE`에 캐시된 `S3AFileSystem`의 내부 AWS SDK `ScheduledThreadPoolExecutor`가 비정상 shutdown 상태에 빠질 수 있다. 이 경우 이후 모든 S3 접근이 `RejectedExecutionException`으로 실패한다.
+
+라운드 에러 발생 시 `FileSystem.closeAll()`로 캐시를 flush하여 깨진 S3Client를 정리하고, 다음 라운드에서 새 `S3AFileSystem` → 새 S3Client가 생성되도록 한다. 3회 연속 실패 시에만 프로세스를 종료한다.
+
+체크포인트는 토픽별로 독립 경로(`s3a://{bucket}/iceberg/checkpoint/{dag_id}/{topic}`)에 기록되므로, 일부 토픽만 실패한 라운드에서도 성공한 토픽의 체크포인트는 정상 갱신된다. 실패한 토픽은 다음 라운드에서 마지막 성공 offset부터 재처리되며, 데이터 손실이나 중복은 발생하지 않는다.
+
 ### kafka_to_s3.py
 
 Kafka → S3 Parquet 스트리밍 파이프라인. 토픽 데이터를 S3에 Parquet 포맷으로 적재합니다.
