@@ -91,5 +91,5 @@ if __name__ == "__main__":
                 logger.info(f"[{i}/{len(all_tables)}] {full_table_name}")
                 run_orphan_cleanup(spark, settings.CATALOG, dag_id, full_table_name, args.orphan_older_than_days)
 
-    logger.info("Watermark maintenance completed.")
+    logger.info("Watermark maintenance and bronze remove_orphan_files completed.")
     spark.stop()
