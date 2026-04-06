@@ -4,11 +4,10 @@ Kafka → S3 Parquet Pipeline (Avro 역직렬화, 토픽별 독립 스트림)
 Airflow에서 spark-submit으로 실행:
   spark-submit --py-files utils.zip kafka_to_s3.py \
     --dag-id glue_kafka_to_s3 \
-    --topics "prefix.schema.table1,prefix.schema.table2" \
-    --output-path s3a://bucket/data/raw/kafka
+    --topics "prefix.schema.table1,prefix.schema.table2"
 
 출력 경로 구조:
-  {output_path}/{topic}/year=yyyy/month=MM/day=dd/
+  {WAREHOUSE}/{topic}/year=yyyy/month=MM/day=dd/
 
 토픽별 파티셔닝 규칙:
   --partition-by "year,month,day"  (기본값)
@@ -110,7 +109,6 @@ def run_topic_stream(
     settings: Settings,
     topic: str,
     dag_id: str,
-    output_path: str,
     partition_cols: list[str],
     schema_registry_client: SchemaRegistryClient,
 ) -> StreamingQuery:
@@ -120,7 +118,7 @@ def run_topic_stream(
         raise ValueError("Kafka configuration is missing.")
 
     checkpoint_path = f"s3a://{settings.storage.bucket}/kafka/checkpoint/{dag_id}/{topic}"
-    topic_output_path = f"{output_path}/{topic}"
+    topic_output_path = f"{settings.WAREHOUSE}/{topic}"
     logger.info(f"Starting stream for topic: {topic}, checkpoint: {checkpoint_path}")
 
     def _foreach_batch(batch_df: DataFrame, batch_id: int) -> None:
@@ -166,7 +164,6 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--dag-id", type=str, required=True, help="파이프라인 식별자 (signal에 사용)")
     parser.add_argument("--topics", type=str, required=True)
-    parser.add_argument("--output-path", type=str, required=True, help="S3 출력 루트 경로 (s3a://bucket/path)")
     parser.add_argument(
         "--partition-by", type=str, default="year,month,day", help="기본 파티션 컬럼 (기본값: year,month,day)"
     )
@@ -180,7 +177,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     settings = Settings(_env_file=args.env_file)
     dag_id = args.dag_id
-    output_path = args.output_path
 
     topics = args.topics.split(",")
     default_partition = [c.strip() for c in args.partition_by.split(",")]
@@ -230,7 +226,7 @@ if __name__ == "__main__":
         partition_cols = (
             [c.strip() for c in partition_rules[topic].split(",")] if topic in partition_rules else default_partition
         )
-        q = run_topic_stream(spark, settings, topic, dag_id, output_path, partition_cols, schema_registry_client)
+        q = run_topic_stream(spark, settings, topic, dag_id, partition_cols, schema_registry_client)
         queries.append(q)
 
     spark.streams.awaitAnyTermination()
