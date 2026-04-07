@@ -14,7 +14,8 @@ submit-command/
 │   ├── sqlserver_to_parquet.env
 │   ├── parquet_to_iceberg.env
 │   ├── schema_validate.env
-│   └── iceberg_maintenance.env
+│   ├── iceberg_maintenance.env
+│   └── openlineage.env
 ├── kafka_to_iceberg.sh
 ├── ...
 └── iceberg_maintenance.sh
@@ -28,8 +29,8 @@ env/<task>.env  →  --files <task>.env#.env  →  YARN 드라이버 working dir
 ```
 
 - `--files <task>.env#.env`: YARN이 파일을 드라이버에 `.env`로 rename하여 배포
-- `AWS_PROFILE`만 `spark.yarn.appMasterEnv` / `spark.executorEnv`로 직접 전달 (executor에서도 필요)
-- 나머지 앱 설정 (VAULT**, DATABASE**, STORAGE**, KAFKA**): .env 파일로 전달
+- `AWS_PROFILE`은 `spark.yarn.appMasterEnv` / `spark.executorEnv`로 직접 전달 (Glue 사용 시 executor에서도 필요)
+- 나머지 앱 설정 (VAULT**, DATABASE**, STORAGE**, KAFKA**, POLARIS\*\*): .env 파일로 전달
 
 ### 실행 방법
 
@@ -49,9 +50,9 @@ bash mysql_to_iceberg.sh
 
 ### env 파일 구성
 
-각 `.env` 파일은 해당 Spark 앱이 필요로 하는 모든 환경변수를 포함합니다.
+각 `.env` 파일은 해당 Spark 앱이 필요로 하는 모든 환경변수를 포함합니다. `STORAGE__CATALOG_TYPE`에 따라 Glue 또는 Polaris 카탈로그를 선택합니다.
 
-#### 배치 적재 (mysql_to_iceberg, sqlserver_to_iceberg, schema_validate)
+#### Glue Catalog (배치 적재)
 
 ```bash
 VAULT__URL=http://vault.svc.internal:8200
@@ -63,16 +64,41 @@ DATABASE__TYPE=mysql
 
 STORAGE__PROFILE=default
 STORAGE__CATALOG=awsdatacatalog
+STORAGE__CATALOG_TYPE=glue
 STORAGE__BUCKET=your-bucket
 STORAGE__DATA_PATH=/iceberg
 ```
 
-#### Parquet 적재 (mysql_to_parquet, sqlserver_to_parquet, parquet_to_iceberg)
-
-위 항목과 동일하되, `DATA_PATH`를 Parquet 저장 경로로 설정:
+#### Polaris Catalog (배치 적재)
 
 ```bash
-STORAGE__DATA_PATH=/data/raw
+VAULT__URL=http://vault.svc.internal:8200
+VAULT__USERNAME=airflow
+VAULT__PASSWORD=changeme
+VAULT__SECRET_PATH=secret/data/user/database/local-mysql
+
+DATABASE__TYPE=mysql
+
+STORAGE__CATALOG=polaris
+STORAGE__CATALOG_TYPE=polaris
+STORAGE__BUCKET=your-bucket
+STORAGE__DATA_PATH=/iceberg
+
+POLARIS__URI=http://polaris.svc.internal:8181/api/catalog
+POLARIS__OAUTH2_SERVER_URI=http://polaris.svc.internal:8181/api/catalog/v1/oauth/tokens
+POLARIS__CREDENTIAL=root:polarisadmin
+POLARIS__SCOPE=PRINCIPAL_ROLE:ALL
+POLARIS__REALM=default
+```
+
+> `STORAGE__PROFILE`은 Glue 전용입니다. Polaris는 OAuth2 인증(`POLARIS__CREDENTIAL`)을 사용하므로 생략 가능합니다.
+
+#### Parquet 적재 (mysql_to_parquet, sqlserver_to_parquet, parquet_to_iceberg)
+
+Glue/Polaris 설정과 동일하되, `DATA_PATH`를 Parquet 저장 경로로 설정:
+
+```bash
+STORAGE__DATA_PATH=/data/parquet
 ```
 
 #### Kafka 스트리밍 (kafka_to_iceberg, kafka_to_iceberg_stream, kafka_to_s3)
@@ -89,19 +115,7 @@ KAFKA__STARTING_OFFSETS=earliest
 
 #### 유지보수 (iceberg_maintenance)
 
-배치 적재와 동일한 `STORAGE__*` 설정이 필요합니다:
-
-```bash
-VAULT__URL=http://vault.svc.internal:8200
-VAULT__USERNAME=airflow
-VAULT__PASSWORD=changeme
-VAULT__SECRET_PATH=secret/data/user/database/local-mysql
-
-STORAGE__PROFILE=default
-STORAGE__CATALOG=awsdatacatalog
-STORAGE__BUCKET=your-bucket
-STORAGE__DATA_PATH=/iceberg
-```
+배치 적재와 동일한 `STORAGE__*` 설정이 필요합니다.
 
 ### Settings 클래스 구조
 
@@ -109,11 +123,15 @@ STORAGE__DATA_PATH=/iceberg
 Settings
 ├── VaultSettings (url, username, password, secret_path)
 ├── DatabaseSettings (type, host, port, user, password) ← Vault에서 주입
-├── StorageSettings (profile, catalog, bucket, data_path)
+├── StorageSettings (profile?, catalog, catalog_type, bucket, data_path)
+├── PolarisSettings (uri, oauth2_server_uri, credential, scope?, realm?) [Optional]
 └── KafkaSettings (bootstrap_servers, schema_registry, ...) [Optional]
 ```
 
-`KafkaSettings`는 Optional이므로 KAFKA\_\_ 환경변수가 없으면 `None`으로 처리됩니다.
+- `StorageSettings.profile`: Glue 전용, Polaris에서는 `None` (optional)
+- `StorageSettings.catalog_type`: `"glue"` 또는 `"polaris"` (필수)
+- `PolarisSettings`: `catalog_type=polaris`일 때만 필요, `scope`와 `realm`은 기본값 있음
+- `KafkaSettings`: Kafka 앱에서만 필요, 없으면 `None`
 
 ### AWS Glue Catalog 관리 (CLI)
 

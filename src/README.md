@@ -132,15 +132,16 @@ python3 analyze_spark_eventlog.py <eventlog_dir>
 
 ### utils/
 
-| 파일               | 설명                                                                                |
-| ------------------ | ----------------------------------------------------------------------------------- |
-| `settings.py`      | Pydantic BaseSettings + Vault 연동 (`env_file=".env"`, `env_nested_delimiter="__"`) |
-| `database.py`      | JDBC 매니저 — `BaseDatabaseManager`, `MySQLManager`, `SQLServerManager`             |
-| `cdc_pipeline.py`  | Kafka CDC → Iceberg 공통 처리 (Debezium 파싱, 타입 변환, upsert/delete)             |
-| `iceberg.py`       | Iceberg 테이블 생성 유틸리티 (`create_or_replace_iceberg_table`)                    |
-| `maintenance.py`   | Iceberg 유지보수 프로시저 실행기 (compaction, orphan cleanup, 테이블 추적)          |
-| `watermark.py`     | 파이프라인/유지보수 상태 추적 (CDC watermark, maintenance watermark, purge)         |
-| `cleansing.py`     | 데이터 클렌징 — CHAR 고정길이 공백 제거                                             |
-| `listener.py`      | Spark Structured Streaming `BatchProgressListener` (시그널 감지)                    |
-| `signal.py`        | S3 시그널 기반 graceful shutdown (`build_signal_path`, `check_stop_signal`)         |
-| `spark_logging.py` | Log4j 기반 Spark 로거 (`SparkLoggerManager` 싱글턴)                                 |
+| 파일               | 설명                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| `settings.py`      | Pydantic BaseSettings + Vault 연동, Glue/Polaris 듀얼 카탈로그 설정 (`env_nested_delimiter="__"`) |
+| `spark.py`         | SparkSession 팩토리 — `catalog_type`에 따라 Glue/Polaris 설정 분기, Log4j 로거 매니저             |
+| `database.py`      | JDBC 매니저 — `BaseDatabaseManager`, `MySQLManager`, `SQLServerManager`                           |
+| `cdc_pipeline.py`  | Kafka CDC → Iceberg 공통 처리 (Debezium 파싱, 타입 변환, upsert/delete)                           |
+| `iceberg.py`       | Iceberg 테이블 생성 유틸리티 (`create_or_replace_iceberg_table`)                                  |
+| `maintenance.py`   | Iceberg 유지보수 프로시저 실행기 (compaction, orphan cleanup, 테이블 추적)                        |
+| `watermark.py`     | 파이프라인/유지보수 상태 추적 (CDC watermark, maintenance watermark, purge)                       |
+| `cleansing.py`     | 데이터 클렌징 — CHAR 고정길이 공백 제거                                                           |
+| `listener.py`      | Spark Structured Streaming `BatchProgressListener` (시그널 감지)                                  |
+| `signal.py`        | S3 시그널 기반 graceful shutdown (`build_signal_path`, `check_stop_signal`)                       |
+| `spark_logging.py` | Log4j 기반 Spark 로거 (`SparkLoggerManager` 싱글턴)                                               |

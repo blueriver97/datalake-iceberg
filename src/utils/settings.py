@@ -22,10 +22,19 @@ class DatabaseSettings(BaseModel):
 
 
 class StorageSettings(BaseModel):
-    profile: str = Field(description="Credential profile name")
+    profile: str | None = Field(default=None, description="Credential profile name (Glue only)")
     catalog: str = Field(description="Iceberg catalog name")
+    catalog_type: str = Field(description="Catalog type (glue, polaris)")
     bucket: str = Field(description="Object storage bucket name")
     data_path: str = Field(description="Data storage base path")
+
+
+class PolarisSettings(BaseModel):
+    uri: str = Field(description="Polaris catalog REST URI")
+    oauth2_server_uri: str = Field(description="Polaris OAuth2 token endpoint")
+    credential: str = Field(description="Polaris client credential")
+    scope: str = Field(default="PRINCIPAL_ROLE:ALL", description="Polaris auth scope")
+    realm: str = Field(default="default", description="Polaris realm")
 
 
 class KafkaSettings(BaseModel):
@@ -83,6 +92,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings
     storage: StorageSettings
     kafka: KafkaSettings | None = None
+    polaris: PolarisSettings | None = None
 
     @classmethod
     def settings_customise_sources(
