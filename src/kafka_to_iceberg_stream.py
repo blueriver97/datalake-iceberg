@@ -169,6 +169,10 @@ if __name__ == "__main__":
             "spark.shuffle.service.removeShuffle": "true",
             "spark.python.use.pinned.thread": "true",
             "spark.scheduler.mode": "FAIR",
+            "spark.ui.retainedJobs": "50",
+            "spark.ui.retainedStages": "50",
+            "spark.ui.retainedTasks": "10000",
+            "spark.sql.ui.retainedExecutions": "50",
         },
     )
 

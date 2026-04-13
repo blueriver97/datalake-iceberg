@@ -263,64 +263,64 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
     logger.info(f"<batch-{batch_id}> Processing {ctx.topic}")
 
     batch_df.persist(StorageLevel.MEMORY_AND_DISK)
+    try:
+        # 스키마 레지스트리 조회
+        value_schema_ids = [row.value_schema_id for row in batch_df.select("value_schema_id").distinct().collect()]
+        value_schema_dict = {sid: ctx.schema_registry_client.get_schema(sid).schema_str for sid in value_schema_ids}
+        key_schema_ids = [row.key_schema_id for row in batch_df.select("key_schema_id").distinct().collect()]
+        key_schema_dict = {sid: ctx.schema_registry_client.get_schema(sid).schema_str for sid in key_schema_ids}
 
-    # 스키마 레지스트리 조회
-    value_schema_ids = [row.value_schema_id for row in batch_df.select("value_schema_id").distinct().collect()]
-    value_schema_dict = {sid: ctx.schema_registry_client.get_schema(sid).schema_str for sid in value_schema_ids}
-    key_schema_ids = [row.key_schema_id for row in batch_df.select("key_schema_id").distinct().collect()]
-    key_schema_dict = {sid: ctx.schema_registry_client.get_schema(sid).schema_str for sid in key_schema_ids}
+        logger.info(f"{ctx.topic} | Key Schema Ids: {key_schema_ids} | Value Schema Ids: {value_schema_ids}")
 
-    logger.info(f"{ctx.topic} | Key Schema Ids: {key_schema_ids} | Value Schema Ids: {value_schema_ids}")
+        # 스키마 버전별 데이터 변환 및 Iceberg 적재
+        # 스키마 ID 오름차순 정렬: 구 버전을 먼저 처리하여 신 버전 MERGE가 최종 상태를 보장한다.
+        for value_schema_id, value_schema_str in sorted(value_schema_dict.items()):
+            schema_filtered_df = batch_df.filter(F.col("value_schema_id") == value_schema_id)
+            value_schema = json.loads(value_schema_str)
+            debezium_schema = extract_debezium_schema(value_schema)
 
-    # 스키마 버전별 데이터 변환 및 Iceberg 적재
-    # 스키마 ID 오름차순 정렬: 구 버전을 먼저 처리하여 신 버전 MERGE가 최종 상태를 보장한다.
-    for value_schema_id, value_schema_str in sorted(value_schema_dict.items()):
-        schema_filtered_df = batch_df.filter(F.col("value_schema_id") == value_schema_id)
-        value_schema = json.loads(value_schema_str)
-        debezium_schema = extract_debezium_schema(value_schema)
+            current_key_schema_rows = schema_filtered_df.select("key_schema_id").distinct().collect()
+            if not current_key_schema_rows:
+                continue
 
-        current_key_schema_rows = schema_filtered_df.select("key_schema_id").distinct().collect()
-        if not current_key_schema_rows:
-            continue
+            key_schema_id = current_key_schema_rows[0].key_schema_id
+            key_schema_str = key_schema_dict.get(key_schema_id)
+            if not key_schema_str:
+                logger.warn(f"Key schema not found for id {key_schema_id}")
+                continue
 
-        key_schema_id = current_key_schema_rows[0].key_schema_id
-        key_schema_str = key_schema_dict.get(key_schema_id)
-        if not key_schema_str:
-            logger.warn(f"Key schema not found for id {key_schema_id}")
-            continue
+            key_schema = json.loads(key_schema_str)
+            pk_cols = [field["name"] for field in key_schema["fields"]]
 
-        key_schema = json.loads(key_schema_str)
-        pk_cols = [field["name"] for field in key_schema["fields"]]
+            result = _transform_and_dedup(
+                spark,
+                schema_filtered_df,
+                key_schema_str,
+                value_schema_str,
+                debezium_schema,
+                pk_cols,
+                full_table_name,
+            )
+            if result is None:
+                continue
 
-        result = _transform_and_dedup(
-            spark,
-            schema_filtered_df,
-            key_schema_str,
-            value_schema_str,
-            debezium_schema,
-            pk_cols,
-            full_table_name,
-        )
-        if result is None:
-            continue
+            upsert_df, delete_df = result
+            _apply_cdc_changes(spark, full_table_name, table, upsert_df, delete_df)
 
-        upsert_df, delete_df = result
-        _apply_cdc_changes(spark, full_table_name, table, upsert_df, delete_df)
+        # 수정된 테이블 추적
+        if ctx.tracker is not None:
+            ctx.tracker.mark(full_table_name)
 
-    # 수정된 테이블 추적
-    if ctx.tracker is not None:
-        ctx.tracker.mark(full_table_name)
-
-    # Watermark 기록
-    table_duration = time.monotonic() - table_start_time
-    stats = batch_df.agg(
-        F.count("*").alias("cnt"),
-        F.date_format(F.max("timestamp"), "yyyy-MM-dd HH:mm:ss.SSSSSS").alias("max_ts"),
-        F.min("offset").alias("min_offset"),
-        F.max("offset").alias("max_offset"),
-    ).collect()[0]
-
-    batch_df.unpersist()
+        # Watermark 기록
+        table_duration = time.monotonic() - table_start_time
+        stats = batch_df.agg(
+            F.count("*").alias("cnt"),
+            F.date_format(F.max("timestamp"), "yyyy-MM-dd HH:mm:ss.SSSSSS").alias("max_ts"),
+            F.min("offset").alias("min_offset"),
+            F.max("offset").alias("max_offset"),
+        ).collect()[0]
+    finally:
+        batch_df.unpersist()
 
     append_cdc_watermark(
         spark,
