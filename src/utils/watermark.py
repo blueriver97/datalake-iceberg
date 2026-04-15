@@ -22,25 +22,25 @@ _maintenance_watermark_lock = threading.Lock()
 
 
 def ensure_watermark_tables(spark: SparkSession, catalog: str, warehouse: str) -> None:
-    """ops_bronze의 CDC/Maintenance watermark 테이블을 모두 초기화한다."""
+    """di_ops의 CDC/Maintenance watermark 테이블을 모두 초기화한다."""
     _ensure_cdc_watermark_table(spark, catalog, warehouse)
     _ensure_maintenance_watermark_table(spark, catalog, warehouse)
 
 
 def _ensure_cdc_watermark_table(spark: SparkSession, catalog: str, warehouse: str) -> None:
-    """ops_bronze.cdc_watermark 테이블이 없으면 생성한다."""
+    """di_ops.cdc_watermark 테이블이 없으면 생성한다."""
     logger = SparkLoggerManager().get_logger()
-    full_table_name = f"{catalog}.ops_bronze.cdc_watermark"
+    full_table_name = f"{catalog}.di_ops.cdc_watermark"
     if not spark.catalog.tableExists(full_table_name):
         logger.info(f"Creating CDC watermark table: {full_table_name}")
         spark.sql(f"""
-            CREATE DATABASE IF NOT EXISTS {catalog}.ops_bronze
-            LOCATION '{warehouse}/ops_bronze'
+            CREATE DATABASE IF NOT EXISTS {catalog}.di_ops
+            LOCATION '{warehouse}/di_ops'
         """)
         spark.sql(f"""
             CREATE TABLE {full_table_name} (
                 dag_id                  STRING,
-                bronze_schema           STRING,
+                iceberg_schema           STRING,
                 table_name              STRING,
                 scheduled_at            TIMESTAMP,
                 max_event_ts            TIMESTAMP,
@@ -51,7 +51,7 @@ def _ensure_cdc_watermark_table(spark: SparkSession, catalog: str, warehouse: st
                 processing_duration_sec DOUBLE,
                 batch_id                BIGINT
             ) USING iceberg
-            LOCATION '{warehouse}/ops_bronze/cdc_watermark'
+            LOCATION '{warehouse}/di_ops/cdc_watermark'
             TBLPROPERTIES (
                 'format-version' = '2',
                 'write.metadata.delete-after-commit.enabled' = 'true',
@@ -63,19 +63,19 @@ def _ensure_cdc_watermark_table(spark: SparkSession, catalog: str, warehouse: st
 
 
 def _ensure_maintenance_watermark_table(spark: SparkSession, catalog: str, warehouse: str) -> None:
-    """ops_bronze.maintenance_watermark 테이블이 없으면 생성한다."""
+    """di_ops.maintenance_watermark 테이블이 없으면 생성한다."""
     logger = SparkLoggerManager().get_logger()
-    full_table_name = f"{catalog}.ops_bronze.maintenance_watermark"
+    full_table_name = f"{catalog}.di_ops.maintenance_watermark"
     if not spark.catalog.tableExists(full_table_name):
         logger.info(f"Creating maintenance watermark table: {full_table_name}")
         spark.sql(f"""
-            CREATE DATABASE IF NOT EXISTS {catalog}.ops_bronze
-            LOCATION '{warehouse}/ops_bronze'
+            CREATE DATABASE IF NOT EXISTS {catalog}.di_ops
+            LOCATION '{warehouse}/di_ops'
         """)
         spark.sql(f"""
             CREATE TABLE {full_table_name} (
                 dag_id                  STRING      COMMENT 'Airflow DAG ID (실행 주체)',
-                bronze_schema           STRING      COMMENT '대상 스키마',
+                iceberg_schema           STRING      COMMENT '대상 스키마',
                 table_name              STRING      COMMENT '대상 테이블',
                 procedure_type          STRING      COMMENT '프로시저 유형',
                 started_at              TIMESTAMP   COMMENT '프로시저 실행 시작 시각',
@@ -87,7 +87,7 @@ def _ensure_maintenance_watermark_table(spark: SparkSession, catalog: str, wareh
                 added_files_count       BIGINT      COMMENT '새로 추가된 파일 수',
                 batch_id                BIGINT      COMMENT 'CDC batch_id'
             ) USING iceberg
-            LOCATION '{warehouse}/ops_bronze/maintenance_watermark'
+            LOCATION '{warehouse}/di_ops/maintenance_watermark'
             TBLPROPERTIES (
                 'format-version' = '2',
                 'write.metadata.delete-after-commit.enabled' = 'true',
@@ -105,7 +105,7 @@ def _ensure_maintenance_watermark_table(spark: SparkSession, catalog: str, wareh
 
 def _build_cdc_values(
     dag_id: str,
-    bronze_schema: str,
+    iceberg_schema: str,
     table_name: str,
     event_count: int,
     max_event_ts,
@@ -125,7 +125,7 @@ def _build_cdc_values(
     return f"""
         SELECT
             '{dag_id}' AS dag_id,
-            '{bronze_schema}' AS bronze_schema,
+            '{iceberg_schema}' AS iceberg_schema,
             '{table_name}' AS table_name,
             {scheduled_at_expr} AS scheduled_at,
             {max_event_ts_expr} AS max_event_ts,
@@ -139,7 +139,7 @@ def _build_cdc_values(
 
 
 def _log_cdc(
-    bronze_schema: str,
+    iceberg_schema: str,
     table_name: str,
     event_count: int,
     max_event_ts,
@@ -150,19 +150,19 @@ def _log_cdc(
     logger = SparkLoggerManager().get_logger()
     if processing_duration_sec is not None:
         logger.info(
-            f"watermark: {bronze_schema}.{table_name}, "
+            f"watermark: {iceberg_schema}.{table_name}, "
             f"events={event_count}, max_ts={max_event_ts}, "
             f"offsets=[{min_offset}, {max_offset}], duration={processing_duration_sec:.1f}s"
         )
     else:
-        logger.info(f"watermark: {bronze_schema}.{table_name}, events={event_count}, max_ts={max_event_ts}")
+        logger.info(f"watermark: {iceberg_schema}.{table_name}, events={event_count}, max_ts={max_event_ts}")
 
 
 def append_cdc_watermark(
     spark: SparkSession,
     catalog: str,
     dag_id: str,
-    bronze_schema: str,
+    iceberg_schema: str,
     table_name: str,
     event_count: int,
     max_event_ts,
@@ -175,12 +175,12 @@ def append_cdc_watermark(
     """cdc_watermark 테이블에 CDC 처리 기록을 append한다.
 
     동시 쓰기 시 Iceberg 스냅샷 충돌이 발생하지 않는다.
-    최신 상태 조회 시 (dag_id, bronze_schema, table_name) 기준
+    최신 상태 조회 시 (dag_id, iceberg_schema, table_name) 기준
     processed_at DESC로 첫 번째 행을 사용한다.
     """
     values = _build_cdc_values(
         dag_id,
-        bronze_schema,
+        iceberg_schema,
         table_name,
         event_count,
         max_event_ts,
@@ -191,15 +191,15 @@ def append_cdc_watermark(
         scheduled_at,
     )
     with _cdc_watermark_lock:
-        spark.sql(f"INSERT INTO {catalog}.ops_bronze.cdc_watermark {values}")
-    _log_cdc(bronze_schema, table_name, event_count, max_event_ts, min_offset, max_offset, processing_duration_sec)
+        spark.sql(f"INSERT INTO {catalog}.di_ops.cdc_watermark {values}")
+    _log_cdc(iceberg_schema, table_name, event_count, max_event_ts, min_offset, max_offset, processing_duration_sec)
 
 
 def merge_cdc_watermark(
     spark: SparkSession,
     catalog: str,
     dag_id: str,
-    bronze_schema: str,
+    iceberg_schema: str,
     table_name: str,
     event_count: int,
     max_event_ts,
@@ -214,10 +214,10 @@ def merge_cdc_watermark(
     단일 writer 환경에서만 사용한다. 동시 쓰기 시 Iceberg 스냅샷 충돌이
     발생할 수 있으므로, 멀티스레드/멀티프로세스 환경에서는 append_cdc_watermark를 사용한다.
     """
-    full_table = f"{catalog}.ops_bronze.cdc_watermark"
+    full_table = f"{catalog}.di_ops.cdc_watermark"
     values = _build_cdc_values(
         dag_id,
-        bronze_schema,
+        iceberg_schema,
         table_name,
         event_count,
         max_event_ts,
@@ -231,7 +231,7 @@ def merge_cdc_watermark(
         MERGE INTO {full_table} t
         USING ({values}) s
         ON t.dag_id = s.dag_id
-           AND t.bronze_schema = s.bronze_schema
+           AND t.iceberg_schema = s.iceberg_schema
            AND t.table_name = s.table_name
         WHEN MATCHED THEN UPDATE SET
             t.scheduled_at = s.scheduled_at,
@@ -244,7 +244,7 @@ def merge_cdc_watermark(
             t.batch_id = s.batch_id
         WHEN NOT MATCHED THEN INSERT *
     """)
-    _log_cdc(bronze_schema, table_name, event_count, max_event_ts, min_offset, max_offset, processing_duration_sec)
+    _log_cdc(iceberg_schema, table_name, event_count, max_event_ts, min_offset, max_offset, processing_duration_sec)
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +259,7 @@ def _escape_sql(s: str) -> str:
 
 def _build_maintenance_values(
     dag_id: str,
-    bronze_schema: str,
+    iceberg_schema: str,
     table_name: str,
     procedure_type: str,
     started_at: datetime,
@@ -286,7 +286,7 @@ def _build_maintenance_values(
     return f"""
         SELECT
             '{dag_id}' AS dag_id,
-            '{bronze_schema}' AS bronze_schema,
+            '{iceberg_schema}' AS iceberg_schema,
             '{table_name}' AS table_name,
             '{procedure_type}' AS procedure_type,
             TIMESTAMP '{started_ts}' AS started_at,
@@ -301,7 +301,7 @@ def _build_maintenance_values(
 
 
 def _log_maintenance(
-    bronze_schema: str,
+    iceberg_schema: str,
     table_name: str,
     procedure_type: str,
     status: str,
@@ -309,7 +309,7 @@ def _log_maintenance(
 ) -> None:
     logger = SparkLoggerManager().get_logger()
     logger.info(
-        f"maintenance: {bronze_schema}.{table_name}, "
+        f"maintenance: {iceberg_schema}.{table_name}, "
         f"procedure={procedure_type}, status={status}, duration={duration_sec:.1f}s"
     )
 
@@ -318,7 +318,7 @@ def append_maintenance_watermark(
     spark: SparkSession,
     catalog: str,
     dag_id: str,
-    bronze_schema: str,
+    iceberg_schema: str,
     table_name: str,
     procedure_type: str,
     started_at: datetime,
@@ -339,7 +339,7 @@ def append_maintenance_watermark(
     """
     values = _build_maintenance_values(
         dag_id,
-        bronze_schema,
+        iceberg_schema,
         table_name,
         procedure_type,
         started_at,
@@ -352,8 +352,8 @@ def append_maintenance_watermark(
         batch_id,
     )
     with _maintenance_watermark_lock:
-        spark.sql(f"INSERT INTO {catalog}.ops_bronze.maintenance_watermark {values}")
-    _log_maintenance(bronze_schema, table_name, procedure_type, status, duration_sec)
+        spark.sql(f"INSERT INTO {catalog}.di_ops.maintenance_watermark {values}")
+    _log_maintenance(iceberg_schema, table_name, procedure_type, status, duration_sec)
 
 
 # ---------------------------------------------------------------------------
@@ -370,20 +370,20 @@ def get_last_completed_map(
     """전체 테이블의 마지막 성공 시각을 한 번의 벌크 쿼리로 조회한다.
 
     Args:
-        tables: ["bronze_schema.table_name", ...] 형태의 테이블 목록
+        tables: ["<iceberg_schema>.<table_name>", ...] 형태의 테이블 목록
     Returns:
-        {"bronze_schema.table_name": datetime | None, ...}
+        {"<iceberg_schema>.<table_name>": datetime | None, ...}
     """
-    full_table = f"{catalog}.ops_bronze.maintenance_watermark"
+    full_table = f"{catalog}.di_ops.maintenance_watermark"
     rows = spark.sql(f"""
-        SELECT bronze_schema, table_name, MAX(completed_at) AS last_completed
+        SELECT iceberg_schema, table_name, MAX(completed_at) AS last_completed
         FROM {full_table}
         WHERE procedure_type = '{procedure_type}'
           AND status = 'success'
-        GROUP BY bronze_schema, table_name
+        GROUP BY iceberg_schema, table_name
     """).collect()
 
-    result: dict[str, datetime | None] = {f"{row.bronze_schema}.{row.table_name}": row.last_completed for row in rows}
+    result: dict[str, datetime | None] = {f"{row.iceberg_schema}.{row.table_name}": row.last_completed for row in rows}
     for t in tables:
         if t not in result:
             result[t] = None
@@ -409,8 +409,8 @@ def purge_watermarks(spark: SparkSession, catalog: str, retention_days: int = 14
     """cdc_watermark와 maintenance_watermark에서 retention_days 이전 레코드를 삭제한다.
 
     키별 최신 1건은 retention 기간과 무관하게 항상 보존한다.
-    - cdc_watermark: (dag_id, bronze_schema, table_name) 기준, processed_at 최신 보존
-    - maintenance_watermark: (dag_id, bronze_schema, table_name, procedure_type) 기준, started_at 최신 보존
+    - cdc_watermark: (dag_id, iceberg_schema, table_name) 기준, processed_at 최신 보존
+    - maintenance_watermark: (dag_id, iceberg_schema, table_name, procedure_type) 기준, started_at 최신 보존
     """
     logger = SparkLoggerManager().get_logger()
 
@@ -419,7 +419,7 @@ def purge_watermarks(spark: SparkSession, catalog: str, retention_days: int = 14
 
 
 def _purge_cdc_watermark(spark: SparkSession, catalog: str, retention_days: int, logger) -> None:
-    table = f"{catalog}.ops_bronze.cdc_watermark"
+    table = f"{catalog}.di_ops.cdc_watermark"
     try:
         if not spark.catalog.tableExists(table):
             return
@@ -427,10 +427,10 @@ def _purge_cdc_watermark(spark: SparkSession, catalog: str, retention_days: int,
         spark.sql(f"""
             DELETE FROM {table}
             WHERE processed_at < current_timestamp() - INTERVAL {retention_days} DAYS
-              AND (dag_id, bronze_schema, table_name, processed_at) NOT IN (
-                  SELECT dag_id, bronze_schema, table_name, MAX(processed_at)
+              AND (dag_id, iceberg_schema, table_name, processed_at) NOT IN (
+                  SELECT dag_id, iceberg_schema, table_name, MAX(processed_at)
                   FROM {table}
-                  GROUP BY dag_id, bronze_schema, table_name
+                  GROUP BY dag_id, iceberg_schema, table_name
               )
         """)
         logger.info(f"Purge completed: {table}")
@@ -439,7 +439,7 @@ def _purge_cdc_watermark(spark: SparkSession, catalog: str, retention_days: int,
 
 
 def _purge_maintenance_watermark(spark: SparkSession, catalog: str, retention_days: int, logger) -> None:
-    table = f"{catalog}.ops_bronze.maintenance_watermark"
+    table = f"{catalog}.di_ops.maintenance_watermark"
     try:
         if not spark.catalog.tableExists(table):
             return
@@ -447,10 +447,10 @@ def _purge_maintenance_watermark(spark: SparkSession, catalog: str, retention_da
         spark.sql(f"""
             DELETE FROM {table}
             WHERE started_at < current_timestamp() - INTERVAL {retention_days} DAYS
-              AND (dag_id, bronze_schema, table_name, procedure_type, started_at) NOT IN (
-                  SELECT dag_id, bronze_schema, table_name, procedure_type, MAX(started_at)
+              AND (dag_id, iceberg_schema, table_name, procedure_type, started_at) NOT IN (
+                  SELECT dag_id, iceberg_schema, table_name, procedure_type, MAX(started_at)
                   FROM {table}
-                  GROUP BY dag_id, bronze_schema, table_name, procedure_type
+                  GROUP BY dag_id, iceberg_schema, table_name, procedure_type
               )
         """)
         logger.info(f"Purge completed: {table}")

@@ -17,7 +17,7 @@ spark-submit \
   --conf spark.executor.instances=1 \
   iceberg_maintenance.py \
   --dag-id "glue_iceberg_maintenance" \
-  --schemas "store_bronze,ops_bronze" \
+  --schemas "local_store,di_ops" \
   --orphan-older-than-days 3 \
   --watermark-retention-days 14 \
   --compaction-interval 86400 \

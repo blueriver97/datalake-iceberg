@@ -38,7 +38,7 @@ def create_or_replace_iceberg_table(
     spark: SparkSession,
     df: DataFrame,
     settings: Settings,
-    bronze_schema: str,
+    iceberg_schema: str,
     target_table: str,
     pk_cols: list[str] | None = None,
 ) -> None:
@@ -52,15 +52,15 @@ def create_or_replace_iceberg_table(
         spark: SparkSession
         df: 쓸 DataFrame (id_iceberg 컬럼이 이미 추가된 상태)
         settings: Settings (CATALOG, WAREHOUSE)
-        bronze_schema: 대상 스키마 (예: store_bronze)
-        target_table: 대상 테이블 (예: orders)
+        iceberg_schema: Glue Catalog Database 이름 (V2 형식: <service>_<schema>)
+        target_table: 대상 테이블
         pk_cols: PK 컬럼 목록 (None이면 메타데이터 정리 속성 미적용)
     """
     logger = SparkLoggerManager().get_logger()
-    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
+    full_table_name = f"{settings.CATALOG}.{iceberg_schema}.{target_table}"
 
     spark.sql(
-        f"CREATE DATABASE IF NOT EXISTS {settings.CATALOG}.{bronze_schema} LOCATION '{settings.WAREHOUSE}/{bronze_schema}'"
+        f"CREATE DATABASE IF NOT EXISTS {settings.CATALOG}.{iceberg_schema} LOCATION '{settings.WAREHOUSE}/{iceberg_schema}'"
     )
 
     logger.info(f"Creating or replacing {full_table_name}")
@@ -68,7 +68,7 @@ def create_or_replace_iceberg_table(
     writer = (
         df.writeTo(full_table_name)
         .using("iceberg")
-        .tableProperty("location", f"{settings.WAREHOUSE}/{bronze_schema}/{target_table}")
+        .tableProperty("location", f"{settings.WAREHOUSE}/{iceberg_schema}/{target_table}")
         .tableProperty("format-version", "2")
     )
 

@@ -138,6 +138,7 @@ class PipelineContext:
     schema_registry_client: SchemaRegistryClient
     topic: str
     dag_id: str
+    service: str
     scheduled_at: str | None = None
     tracker: ProcessedTableTracker | None = None
     position_delete_interval: int = 0
@@ -256,7 +257,7 @@ def process_batch(batch_df: DataFrame, batch_id: int, ctx: PipelineContext) -> N
     table_start_time = time.monotonic()
 
     _prefix, schema, table = ctx.topic.split(".")
-    iceberg_schema = f"{schema.lower()}_bronze"
+    iceberg_schema = f"{ctx.service}_{schema.lower()}"
     iceberg_table = table.lower()
     full_table_name = f"{ctx.settings.CATALOG}.{iceberg_schema}.{iceberg_table}"
 
@@ -348,6 +349,7 @@ def run_topic_stream(
     settings: Settings,
     topic: str,
     dag_id: str,
+    service: str,
     starting_offsets: str | None = None,
     scheduled_at: str | None = None,
     tracker: ProcessedTableTracker | None = None,
@@ -360,7 +362,7 @@ def run_topic_stream(
         raise ValueError("Kafka configuration is missing.")
 
     _prefix, schema, table = topic.split(".")
-    iceberg_schema = f"{schema.lower()}_bronze"
+    iceberg_schema = f"{service}_{schema.lower()}"
     iceberg_table = table.lower()
 
     checkpoint_path = f"s3a://{settings.storage.bucket}/iceberg/checkpoint/{dag_id}/{topic}"
@@ -372,6 +374,7 @@ def run_topic_stream(
         schema_registry_client=SchemaRegistryClient({"url": settings.kafka.schema_registry}),
         topic=topic,
         dag_id=dag_id,
+        service=service,
         scheduled_at=scheduled_at,
         tracker=tracker,
         position_delete_interval=position_delete_interval,

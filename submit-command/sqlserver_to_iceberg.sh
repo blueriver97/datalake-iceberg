@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SERVICE="local"
 NUM_PARTITION=1
 
 TABLES=(
@@ -26,6 +27,7 @@ for TABLE in "${TABLES[@]}"; do
     --conf spark.executor.memory=1G \
     --conf spark.executor.instances=1 \
     sqlserver_to_iceberg.py \
+    --service "${SERVICE}" \
     --table "${TABLE}" \
     --num_partition "${NUM_PARTITION}"
 done

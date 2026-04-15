@@ -17,6 +17,7 @@ spark-submit \
   --conf spark.executor.instances=2 \
   kafka_to_iceberg_stream.py \
   --dag-id glue_kafka_to_iceberg_stream \
+  --service local \
   --topics "local.store.tb_lower,local.store.TB_UPPER,local.store.TB_COMPOSITE_KEY" \
   --concurrency 3 \
   --round-interval 300 \

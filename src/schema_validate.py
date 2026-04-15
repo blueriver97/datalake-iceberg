@@ -6,7 +6,7 @@ Iceberg 테이블 스키마 검증 및 주석 동기화
 
 실행:
   spark-submit --py-files utils.zip schema_validate.py \
-    --table "db.table_name" --env-file .env
+    --service <service> --table "db.table_name" --env-file .env
 """
 
 import argparse
@@ -22,8 +22,8 @@ from utils.spark import SparkLoggerManager, create_spark_session
 ICEBERG_META_COLUMNS = {"last_applied_date", "id_iceberg"}
 
 
-def _parse_table_name(table_name: str, db_type: str) -> tuple[str, str]:
-    """테이블명 파싱하여 (bronze_schema, target_table) 반환"""
+def _parse_table_name(table_name: str, db_type: str, service: str) -> tuple[str, str]:
+    """테이블명 파싱하여 (iceberg_schema, target_table) 반환"""
     parts = table_name.split(".")
     if db_type == "sqlserver" and len(parts) == 3:
         schema, _, table = parts
@@ -31,25 +31,26 @@ def _parse_table_name(table_name: str, db_type: str) -> tuple[str, str]:
         schema, table = parts
     else:
         raise ValueError(f"Invalid table name format: '{table_name}'.")
-    return f"{schema.lower()}_bronze", table.lower()
+    return f"{service}_{schema.lower()}", table.lower()
 
 
 def compare_columns(
     spark: SparkSession,
     settings: Settings,
     db_manager: BaseDatabaseManager,
+    service: str,
     table_name: str,
 ) -> None:
     """컬럼 수, 순서, 데이터 타입 비교 + 미반영 컬럼 리포팅"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
-    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
+    iceberg_schema, target_table = _parse_table_name(table_name, settings.database.type, service)
+    full_table_name = f"{settings.CATALOG}.{iceberg_schema}.{target_table}"
 
     source_schema = db_manager.get_schema(spark, table_name)
-    iceberg_schema = spark.table(full_table_name).schema
+    iceberg_table_schema = spark.table(full_table_name).schema
 
     source_cols = list(source_schema.keys())
-    iceberg_cols = [f.name for f in iceberg_schema.fields if f.name not in ICEBERG_META_COLUMNS]
+    iceberg_cols = [f.name for f in iceberg_table_schema.fields if f.name not in ICEBERG_META_COLUMNS]
 
     # 컬럼 수 비교
     if len(source_cols) != len(iceberg_cols):
@@ -70,7 +71,7 @@ def compare_columns(
         logger.warn(f"[{table_name}] Column order mismatch")
 
     # 데이터 타입 비교
-    iceberg_field_map = {f.name.lower(): f for f in iceberg_schema.fields if f.name not in ICEBERG_META_COLUMNS}
+    iceberg_field_map = {f.name.lower(): f for f in iceberg_table_schema.fields if f.name not in ICEBERG_META_COLUMNS}
     for col_name, source_type in source_schema.items():
         iceberg_field = iceberg_field_map.get(col_name.lower())
         if iceberg_field is None:
@@ -87,12 +88,13 @@ def sync_column_comments(
     spark: SparkSession,
     settings: Settings,
     db_manager: BaseDatabaseManager,
+    service: str,
     table_name: str,
 ) -> None:
     """원천 DB 컬럼 주석을 Iceberg 테이블에 동기화"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
-    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
+    iceberg_schema, target_table = _parse_table_name(table_name, settings.database.type, service)
+    full_table_name = f"{settings.CATALOG}.{iceberg_schema}.{target_table}"
 
     source_comments = db_manager.get_column_comments(spark, table_name)
     iceberg_fields = {f.name.lower(): f for f in spark.table(full_table_name).schema.fields}
@@ -116,16 +118,17 @@ def compare_nullable(
     spark: SparkSession,
     settings: Settings,
     db_manager: BaseDatabaseManager,
+    service: str,
     table_name: str,
 ) -> None:
     """원천 DB와 Iceberg 테이블의 nullable 정합성 비교"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
-    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
+    iceberg_schema, target_table = _parse_table_name(table_name, settings.database.type, service)
+    full_table_name = f"{settings.CATALOG}.{iceberg_schema}.{target_table}"
 
     source_nullable = db_manager.get_nullable_info(spark, table_name)
-    iceberg_schema = spark.table(full_table_name).schema
-    iceberg_field_map = {f.name.lower(): f for f in iceberg_schema.fields if f.name not in ICEBERG_META_COLUMNS}
+    iceberg_table_schema = spark.table(full_table_name).schema
+    iceberg_field_map = {f.name.lower(): f for f in iceberg_table_schema.fields if f.name not in ICEBERG_META_COLUMNS}
 
     mismatches = []
     for col_name, is_nullable in source_nullable.items():
@@ -145,12 +148,13 @@ def compare_primary_keys(
     spark: SparkSession,
     settings: Settings,
     db_manager: BaseDatabaseManager,
+    service: str,
     table_name: str,
 ) -> None:
     """원천 DB PK와 Iceberg identifier fields 비교"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
-    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
+    iceberg_schema, target_table = _parse_table_name(table_name, settings.database.type, service)
+    full_table_name = f"{settings.CATALOG}.{iceberg_schema}.{target_table}"
 
     source_pks = db_manager.get_primary_key(spark, table_name)
 
@@ -170,12 +174,13 @@ def sync_table_comment(
     spark: SparkSession,
     settings: Settings,
     db_manager: BaseDatabaseManager,
+    service: str,
     table_name: str,
 ) -> None:
     """원천 DB 테이블 주석을 Iceberg 테이블에 동기화"""
     logger = SparkLoggerManager().get_logger()
-    bronze_schema, target_table = _parse_table_name(table_name, settings.database.type)
-    full_table_name = f"{settings.CATALOG}.{bronze_schema}.{target_table}"
+    iceberg_schema, target_table = _parse_table_name(table_name, settings.database.type, service)
+    full_table_name = f"{settings.CATALOG}.{iceberg_schema}.{target_table}"
 
     comment = db_manager.get_table_comment(spark, table_name)
     if not comment:
@@ -202,17 +207,18 @@ def process_schema_validate(
     spark: SparkSession,
     settings: Settings,
     db_manager: BaseDatabaseManager,
+    service: str,
     table_name: str,
 ) -> None:
     """테이블에 대해 5개 스키마 검증/동기화 작업을 수행합니다."""
     logger = SparkLoggerManager().get_logger()
     logger.info(f"Starting schema validation for {table_name}")
 
-    compare_columns(spark, settings, db_manager, table_name)
-    sync_column_comments(spark, settings, db_manager, table_name)
-    compare_nullable(spark, settings, db_manager, table_name)
-    compare_primary_keys(spark, settings, db_manager, table_name)
-    sync_table_comment(spark, settings, db_manager, table_name)
+    compare_columns(spark, settings, db_manager, service, table_name)
+    sync_column_comments(spark, settings, db_manager, service, table_name)
+    compare_nullable(spark, settings, db_manager, service, table_name)
+    compare_primary_keys(spark, settings, db_manager, service, table_name)
+    sync_table_comment(spark, settings, db_manager, service, table_name)
 
     logger.info(f"Schema validation completed for {table_name}")
 
@@ -227,6 +233,7 @@ def main(spark: SparkSession, settings: Settings, app_args) -> None:
 
     logger.info("Starting schema validation.")
 
+    service = app_args.service
     table_name = app_args.table
 
     try:
@@ -236,7 +243,7 @@ def main(spark: SparkSession, settings: Settings, app_args) -> None:
         else:
             db_manager = MySQLManager(settings)
 
-        process_schema_validate(spark, settings, db_manager, table_name)
+        process_schema_validate(spark, settings, db_manager, service, table_name)
     except Exception as e:
         logger.error(f"Failed to validate schema for '{table_name}': {e}")
         raise e
@@ -246,6 +253,12 @@ def main(spark: SparkSession, settings: Settings, app_args) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--service",
+        type=str.lower,
+        required=True,
+        help="서비스 영문 식별자 (Glue Catalog Database prefix, 소문자로 정규화)",
+    )
     parser.add_argument("--table", type=str)
     parser.add_argument("--env-file", type=str, default=".env", help="환경 설정 파일 경로 (기본값: .env)")
     args = parser.parse_args()

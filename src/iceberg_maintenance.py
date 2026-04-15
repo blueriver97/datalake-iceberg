@@ -9,7 +9,7 @@ Iceberg Maintenance — watermark 정리 + compaction + orphan cleanup
 Airflow에서 spark-submit으로 실행:
   spark-submit --py-files utils.zip iceberg_maintenance.py \
     --dag-id "iceberg_maintenance" \
-    --schemas "store_bronze" \
+    --schemas "local_store" \
     --retention-days 7
 """
 
@@ -23,8 +23,8 @@ from utils.spark import SparkLoggerManager, create_spark_session
 from utils.watermark import ensure_watermark_tables, purge_watermarks
 
 OPS_WATERMARK_TABLES = [
-    "ops_bronze.cdc_watermark",
-    "ops_bronze.maintenance_watermark",
+    "di_ops.cdc_watermark",
+    "di_ops.maintenance_watermark",
 ]
 
 

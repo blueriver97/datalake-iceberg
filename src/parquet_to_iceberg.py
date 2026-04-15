@@ -6,7 +6,7 @@ mysql_to_parquet / sqlserver_to_parquet의 후속 단계로 사용된다.
 
 실행:
   spark-submit --py-files utils.zip parquet_to_iceberg.py \
-    --table "db.table_name" --env-file .env
+    --service <service> --table "db.table_name" --env-file .env
 """
 
 import argparse
@@ -39,6 +39,7 @@ def process_parquet_to_iceberg(
     spark: SparkSession,
     settings: Settings,
     db_manager: BaseDatabaseManager,
+    service: str,
     table_name: str,
 ) -> None:
     """
@@ -48,6 +49,7 @@ def process_parquet_to_iceberg(
         spark (SparkSession): Spark 세션 객체
         settings (Settings): 설정 객체
         db_manager (BaseDatabaseManager): 데이터베이스 관리자 객체
+        service (str): 서비스 영문 식별자 (Glue Catalog Database prefix)
         table_name (str): 대상 테이블 명 (db.table 또는 db.dbo.table)
     """
     logger = SparkLoggerManager().get_logger()
@@ -61,7 +63,7 @@ def process_parquet_to_iceberg(
     else:
         raise ValueError(f"Invalid table name format: '{table_name}'. Expected 'db.table' or 'db.schema.table'.")
 
-    bronze_schema = f"{schema.lower()}_bronze"
+    iceberg_schema = f"{service}_{schema.lower()}"
     target_table = table.lower()
     parquet_path = f"{settings.WAREHOUSE}/{schema}/{table}"
 
@@ -82,7 +84,7 @@ def process_parquet_to_iceberg(
     if pk_cols:
         parquet_df = parquet_df.withColumn("id_iceberg", F.md5(F.concat_ws("|", *[F.col(pk) for pk in pk_cols])))
 
-    create_or_replace_iceberg_table(spark, parquet_df, settings, bronze_schema, target_table, pk_cols)
+    create_or_replace_iceberg_table(spark, parquet_df, settings, iceberg_schema, target_table, pk_cols)
 
 
 def main(spark: SparkSession, settings: Settings, app_args) -> None:
@@ -95,6 +97,7 @@ def main(spark: SparkSession, settings: Settings, app_args) -> None:
 
     logger.info("Starting Iceberg table creation from Parquet.")
 
+    service = app_args.service
     table_name = app_args.table
 
     try:
@@ -104,7 +107,7 @@ def main(spark: SparkSession, settings: Settings, app_args) -> None:
         else:
             db_manager = MySQLManager(settings)
 
-        process_parquet_to_iceberg(spark, settings, db_manager, table_name)
+        process_parquet_to_iceberg(spark, settings, db_manager, service, table_name)
     except Exception as e:
         logger.error(f"Failed to process table '{table_name}': {e}")
         raise e
@@ -114,6 +117,12 @@ def main(spark: SparkSession, settings: Settings, app_args) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--service",
+        type=str.lower,
+        required=True,
+        help="서비스 영문 식별자 (Glue Catalog Database prefix, 소문자로 정규화)",
+    )
     parser.add_argument("--table", type=str)
     parser.add_argument("--env-file", type=str, default=".env", help="환경 설정 파일 경로 (기본값: .env)")
     args = parser.parse_args()

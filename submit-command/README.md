@@ -140,20 +140,20 @@ Settings
 aws glue get-databases --profile default
 
 # 특정 데이터베이스의 테이블 목록
-aws glue get-tables --database-name store_bronze --profile default
+aws glue get-tables --database-name local_store --profile default
 
 # 특정 테이블 상세 정보
-aws glue get-table --database-name store_bronze --name tb_lower --profile default
+aws glue get-table --database-name local_store --name tb_lower --profile default
 
 # 테이블 삭제
-aws glue delete-table --database-name store_bronze --name tb_lower --profile default
+aws glue delete-table --database-name local_store --name tb_lower --profile default
 
 # 테이블 여러 개 한번에 삭제
-aws glue batch-delete-table --database-name store_bronze \
+aws glue batch-delete-table --database-name local_store \
   --tables-to-delete tb_lower TB_UPPER TB_COMPOSITE_KEY --profile default
 
 # 데이터베이스 삭제 (테이블이 비어있어야 함)
-aws glue delete-database --name store_bronze --profile default
+aws glue delete-database --name local_store --profile default
 ```
 
 출력 포맷: `--output yaml` (AWS CLI v2), `--query "TableList[].Name" --output text` (v1/v2 공통)

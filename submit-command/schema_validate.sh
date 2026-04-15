@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SERVICE="local"
+
 TABLES=(
   "store.tb_lower"
   "store.TB_UPPER"
@@ -24,5 +26,6 @@ for TABLE in "${TABLES[@]}"; do
     --conf spark.executor.memory=1G \
     --conf spark.executor.instances=1 \
     schema_validate.py \
+    --service "${SERVICE}" \
     --table "${TABLE}"
 done

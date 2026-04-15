@@ -2,7 +2,7 @@
 Kafka CDC → Iceberg Pipeline (토픽별 독립 스트림, 멀티스레드 병렬 처리)
 
 Airflow에서 spark-submit으로 실행:
-  spark-submit --py-files utils.zip kafka_to_iceberg.py --topics "prefix.schema.table1,prefix.schema.table2"
+  spark-submit --py-files utils.zip kafka_to_iceberg.py --service <service> --topics "prefix.schema.table1,prefix.schema.table2"
 
 S3 시그널 파일로 중단:
   s3a://{bucket}/spark/signal/{dag_id} 파일이 존재하면 남은 토픽 처리를 건너뛴다.
@@ -31,6 +31,12 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument(
         "--dag-id", type=str, required=True, help="파이프라인 식별자 (watermark, signal, metrics에 사용)"
+    )
+    parser.add_argument(
+        "--service",
+        type=str.lower,
+        required=True,
+        help="서비스 영문 식별자 (Glue Catalog Database prefix, 소문자로 정규화)",
     )
     parser.add_argument("--topics", type=str, required=True)
     parser.add_argument("--concurrency", type=int, default=3, help="동시 처리 토픽 수 (기본값: 3)")
@@ -107,7 +113,7 @@ if __name__ == "__main__":
     table_keys = []
     for topic in topics:
         _prefix, schema, table = topic.split(".")
-        table_keys.append(f"{schema.lower()}_bronze.{table.lower()}")
+        table_keys.append(f"{args.service}_{schema.lower()}.{table.lower()}")
 
     # position delete compaction용 pre-fetched map (스레드 시작 전 1회)
     pdc_last_map = None
@@ -140,6 +146,7 @@ if __name__ == "__main__":
                     t_settings,
                     t_topic,
                     dag_id,
+                    args.service,
                     offsets_map.get(t_topic),
                     args.scheduled_at,
                     tracker=tracker,
@@ -164,8 +171,8 @@ if __name__ == "__main__":
     if modified_tables:
         modified_keys = []
         for full_table_name in modified_tables:
-            _catalog, bronze_schema, table_name = full_table_name.split(".")
-            modified_keys.append(f"{bronze_schema}.{table_name}")
+            _catalog, iceberg_schema, table_name = full_table_name.split(".")
+            modified_keys.append(f"{iceberg_schema}.{table_name}")
 
         compaction_map = get_last_completed_map(
             spark,
@@ -174,8 +181,8 @@ if __name__ == "__main__":
             "rewrite_data_files",
         )
         for full_table_name in modified_tables:
-            _catalog, bronze_schema, table_name = full_table_name.split(".")
-            key = f"{bronze_schema}.{table_name}"
+            _catalog, iceberg_schema, table_name = full_table_name.split(".")
+            key = f"{iceberg_schema}.{table_name}"
             if should_run(compaction_map.get(key), args.compaction_interval):
                 run_compaction(spark, settings.CATALOG, dag_id, full_table_name)
     else:

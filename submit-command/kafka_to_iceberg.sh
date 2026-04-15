@@ -17,6 +17,7 @@ spark-submit \
   --conf spark.executor.instances=2 \
   kafka_to_iceberg.py \
   --dag-id glue_kafka_to_iceberg \
+  --service local \
   --topics "local.store.tb_lower,local.store.TB_UPPER,local.store.TB_COMPOSITE_KEY" \
   --concurrency 3 \
   --scheduled-at "2026-03-31T00:00:00+00:00"

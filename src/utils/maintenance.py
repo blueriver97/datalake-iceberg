@@ -76,7 +76,7 @@ def run_compaction(
     예외를 전파하지 않는다.
     """
     logger = SparkLoggerManager().get_logger()
-    _prefix, bronze_schema, table_name = full_table_name.split(".")
+    _prefix, iceberg_schema, table_name = full_table_name.split(".")
 
     # --- rewrite_data_files ---
     rewrite_ok = False
@@ -92,7 +92,7 @@ def run_compaction(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "rewrite_data_files",
             wall_start,
@@ -113,7 +113,7 @@ def run_compaction(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "rewrite_data_files",
             wall_start,
@@ -133,7 +133,7 @@ def run_compaction(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "expire_snapshots",
             wall_start,
@@ -155,7 +155,7 @@ def run_compaction(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "expire_snapshots",
             wall_start,
@@ -173,7 +173,7 @@ def run_compaction(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "expire_snapshots",
             wall_start,
@@ -195,7 +195,7 @@ def run_position_delete_compaction(
 ) -> None:
     """rewrite_position_delete_files만 단독 실행한다. 예외를 전파하지 않는다."""
     logger = SparkLoggerManager().get_logger()
-    _prefix, bronze_schema, table_name = full_table_name.split(".")
+    _prefix, iceberg_schema, table_name = full_table_name.split(".")
 
     wall_start = datetime.now(UTC)
     mono_start = time.monotonic()
@@ -211,7 +211,7 @@ def run_position_delete_compaction(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "rewrite_position_delete_files",
             wall_start,
@@ -233,7 +233,7 @@ def run_position_delete_compaction(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "rewrite_position_delete_files",
             wall_start,
@@ -255,7 +255,7 @@ def run_orphan_cleanup(
 ) -> None:
     """remove_orphan_files를 실행한다. 예외를 전파하지 않는다."""
     logger = SparkLoggerManager().get_logger()
-    _prefix, bronze_schema, table_name = full_table_name.split(".")
+    _prefix, iceberg_schema, table_name = full_table_name.split(".")
 
     older_than_ts = (datetime.now(UTC) - timedelta(days=orphan_older_than_days)).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -275,7 +275,7 @@ def run_orphan_cleanup(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "remove_orphan_files",
             wall_start,
@@ -292,7 +292,7 @@ def run_orphan_cleanup(
             spark,
             catalog,
             dag_id,
-            bronze_schema,
+            iceberg_schema,
             table_name,
             "remove_orphan_files",
             wall_start,
