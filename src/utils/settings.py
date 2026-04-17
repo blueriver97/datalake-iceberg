@@ -8,9 +8,9 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 
 class VaultSettings(BaseModel):
     url: str = Field(description="Vault URL")
-    username: str = Field(description="Vault username")
-    password: SecretStr = Field(description="Vault password")
-    secret_path: str = Field(description="Vault secret path")
+    username: str = Field(description="Vault Username/AppRole role_id")
+    password: SecretStr = Field(description="Vault Password/AppRole secret_id")
+    secret_path: str = Field(description="Vault KV v2 secret path (e.g. kv-service/data/database/xxx)")
 
 
 class DatabaseSettings(BaseModel):
@@ -61,7 +61,8 @@ class VaultSettingsSource(PydanticBaseSettingsSource):
 
         try:
             client = hvac.Client(url=url)
-            client.auth.userpass.login(username=username, password=password)
+            # client.auth.userpass.login(username=username, password=password)
+            client.auth.approle.login(role_id=username, secret_id=password)
             response = client.read(path=secret_path)
 
             if not isinstance(response, dict) or "data" not in response or "data" not in response["data"]:

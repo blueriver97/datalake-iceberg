@@ -56,9 +56,9 @@ bash mysql_to_iceberg.sh
 
 ```bash
 VAULT__URL=http://vault.svc.internal:8200
-VAULT__USERNAME=airflow
-VAULT__PASSWORD=changeme
-VAULT__SECRET_PATH=secret/data/user/database/local-mysql
+VAULT__USERNAME=<user-rw role_id>
+VAULT__PASSWORD=<user-rw secret_id>
+VAULT__SECRET_PATH=kv-personal/data/local/database/mysql
 
 DATABASE__TYPE=mysql
 
@@ -73,9 +73,9 @@ STORAGE__DATA_PATH=/iceberg
 
 ```bash
 VAULT__URL=http://vault.svc.internal:8200
-VAULT__USERNAME=airflow
-VAULT__PASSWORD=changeme
-VAULT__SECRET_PATH=secret/data/user/database/local-mysql
+VAULT__USERNAME=<user-rw role_id>
+VAULT__PASSWORD=<user-rw secret_id>
+VAULT__SECRET_PATH=kv-personal/data/local/database/mysql
 
 DATABASE__TYPE=mysql
 
@@ -121,7 +121,7 @@ KAFKA__STARTING_OFFSETS=earliest
 
 ```
 Settings
-├── VaultSettings (url, username, password, secret_path)
+├── VaultSettings (url, username, password, secret_path) ← username=role_id, password=secret_id (AppRole)
 ├── DatabaseSettings (type, host, port, user, password) ← Vault에서 주입
 ├── StorageSettings (profile?, catalog, catalog_type, bucket, data_path)
 ├── PolarisSettings (uri, oauth2_server_uri, credential, scope?, realm?) [Optional]
